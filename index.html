@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>E2E Model Migration — NCA Kanban</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+*{font-family:'Inter',system-ui,-apple-system,sans-serif}
+body{background:#0a0818;min-height:100vh;color:#fff;overflow-x:hidden}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:4px}
+body{
+  --bg:#0a0818;--surface:#13112a;--card:#1a1836;--card-h:#231f45;
+  --border:rgba(255,255,255,0.08);--border-s:rgba(255,255,255,0.14);
+  --t1:#fff;--t2:rgba(255,255,255,0.7);--t3:rgba(255,255,255,0.4);--t4:rgba(255,255,255,0.18);
+  --accent:#a78bfa;--accent-bg:rgba(139,92,246,0.12);
+  --sh:0 1px 8px rgba(0,0,0,0.35);
+}
+body.light{
+  --bg:#f4f2fb;--surface:#eae7f6;--card:#fff;--card-h:#f9f7ff;
+  --border:rgba(80,60,160,0.1);--border-s:rgba(80,60,160,0.18);
+  --t1:#1a1635;--t2:rgba(26,22,53,0.7);--t3:rgba(26,22,53,0.42);--t4:rgba(26,22,53,0.15);
+  --accent:#6d4abe;--accent-bg:rgba(109,74,190,0.08);
+  --sh:0 1px 8px rgba(0,0,0,0.06);
+}
+body{background:var(--bg);transition:background .15s}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+const FIREBASE_CONFIG={
+  apiKey:"AIzaSyAz4w386VblVtBZMNHSB9kCUcKfsAGCcpc",
+  authDomain:"deoples-migration-kanban.firebaseapp.com",
+  databaseURL:"https://deoples-migration-kanban-default-rtdb.firebaseio.com",
+  projectId:"deoples-migration-kanban",
+  storageBucket:"deoples-migration-kanban.firebasestorage.app",
+  messagingSenderId:"1035455964704",
+  appId:"1:1035455964704:web:e494f55435927a1b1a3e45",
+  measurementId:"G-JQLCFRE19Z"
+};
+let db=null,firebaseReady=false;
+try{
+  /* Only init Firebase if the key looks real (length >20, no placeholder dots) */
+  const k=FIREBASE_CONFIG.apiKey;
+  const isReal=k&&k.length>20&&!k.includes('...')&&k!=="YOUR_API_KEY";
+  if(isReal){firebase.initializeApp(FIREBASE_CONFIG);db=firebase.database();firebaseReady=true;}
+}catch(e){console.warn('Firebase:',e);}
+</script>
+
+<script type="text/babel">
+const{useState,useEffect,useCallback,useRef,useMemo}=React;
+
+/* ═══ CONSTANTS ═══ */
+const LS='ncau-kanban-v6';
+const FB='kanban_v3';
+const JIRA='https://newscorpaustralia.atlassian.net/browse';
+const DEADLINE=new Date('2026-05-31');
+const DAYS_LEFT=Math.max(0,Math.ceil((DEADLINE-Date.now())/864e5));
+
+/* Pipeline stages — these are the COLUMNS on the board */
+const STAGES=[
+  {key:'baseline',  label:'Baseline Analysis'},
+  {key:'model-sel', label:'Model Selection'},
+  {key:'prompt',    label:'Prompt Engineering'},
+  {key:'benchmark', label:'Benchmarking'},
+  {key:'qa',        label:'QA & Safety'},
+  {key:'artie-dev', label:'Artie Dev Deploy'},
+  {key:'uat',       label:'UAT'},
+  {key:'prod',      label:'Production'},
+];
+const STAGE_IX=Object.fromEntries(STAGES.map((s,i)=>[s.key,{...s,i}]));
+
+/* Tools — these are the CARDS, one per tool */
+const TOOLS=[
+  {id:'seo',       name:'SEO',               clr:'#f43f5e',phase:1,jira:'EC-17148',owner:'Tony'},
+  {id:'standfirst',name:'Standfirst',         clr:'#ec4899',phase:1,jira:'EC-17150',owner:'Tony'},
+  {id:'bullet',    name:'Bullet Points',      clr:'#a855f7',phase:1,jira:'',        owner:'Rocky'},
+  {id:'print-hl',  name:'Print Headline V2',  clr:'#8b5cf6',phase:2,jira:'',        owner:'Sayee'},
+  {id:'story',     name:'Storycutter',        clr:'#6366f1',phase:2,jira:'EC-17151',owner:'Erin Nixon'},
+  {id:'ext-hl',    name:'Extended Headline',  clr:'#3b82f6',phase:3,jira:'EC-17152',owner:'Tony'},
+  {id:'short-hl',  name:'Short Headline',     clr:'#0ea5e9',phase:3,jira:'EC-17153',owner:'Tony'},
+  {id:'sports',    name:'Sports Preview',     clr:'#14b8a6',phase:3,jira:'',        owner:'Tony'},
+  {id:'press',     name:'Press Release',      clr:'#22c55e',phase:3,jira:'',        owner:'Tony'},
+];
+const TOOL_IX=Object.fromEntries(TOOLS.map(t=>[t.id,t]));
+
+const TEAM=[
+  {name:'Erin Nixon',ini:'EN',clr:'#ec4899'},
+  {name:'Tony',      ini:'TO',clr:'#6366f1'},
+  {name:'Sayee',     ini:'SS',clr:'#8b5cf6'},
+  {name:'Rocky',     ini:'RO',clr:'#f59e0b'},
+  {name:'Neil',      ini:'NE',clr:'#14b8a6'},
+  {name:'Hanz',      ini:'HZ',clr:'#10b981'},
+];
+const TEAM_IX=Object.fromEntries(TEAM.map(m=>[m.name,m]));
+const RAG_CLR={green:'#22c55e',amber:'#f59e0b',red:'#ef4444'};
+const RAG_BG ={green:'rgba(34,197,94,.12)',amber:'rgba(245,158,11,.12)',red:'rgba(239,68,68,.12)'};
+
+function defaults(){
+  return[
+    {id:'seo',       stage:'artie-dev',assignee:'Hanz',      rag:'amber',blocked:true, comment:'Ready for Artie Dev. On hold pending infra.'},
+    {id:'standfirst',stage:'artie-dev',assignee:'Hanz',      rag:'amber',blocked:true, comment:'Ready for Artie Dev. On hold pending infra.'},
+    {id:'bullet',    stage:'prompt',   assignee:'Rocky',     rag:'green',blocked:false,comment:'Claude 4.6 selected. Benchmarking next.'},
+    {id:'print-hl',  stage:'prompt',   assignee:'Sayee',     rag:'amber',blocked:false,comment:'Character count issues being ironed out.'},
+    {id:'story',     stage:'model-sel',assignee:'Erin Nixon',rag:'green',blocked:false,comment:'Gemini 3.1 likely model. No benchmark needed.'},
+    {id:'ext-hl',    stage:'baseline', assignee:'Tony',      rag:'green',blocked:false,comment:'Scoring tool being updated across 6 models.'},
+    {id:'short-hl',  stage:'baseline', assignee:'Tony',      rag:'green',blocked:false,comment:'Scoring tool being updated across 6 models.'},
+    {id:'sports',    stage:'baseline', assignee:'Tony',      rag:'red',  blocked:true, comment:'On hold pending legal confirmation.'},
+    {id:'press',     stage:'baseline', assignee:'Tony',      rag:'red',  blocked:true, comment:'On hold pending legal confirmation.'},
+  ].map(c=>({...c,lastUpdated:new Date().toISOString()}));
+}
+
+/* ═══ FIREBASE SYNC ═══ */
+function useSync(){
+  const[ss,setSS]=useState(firebaseReady?'connecting':'local');
+  const rr=useRef([]);
+  const wr=useCallback((p,d)=>{if(db)db.ref(FB+'/'+p).set(d).catch(()=>setSS('disconnected'));},[]);
+  const li=useCallback((p,cb)=>{
+    if(!db)return()=>{};
+    const ref=db.ref(FB+'/'+p);
+    /* error handler calls cb(null) so loading always resolves to localStorage fallback */
+    ref.on('value',s=>{setSS('connected');cb(s.val());},()=>{setSS('disconnected');cb(null);});
+    rr.current.push(ref);
+    return()=>ref.off();
+  },[]);
+  useEffect(()=>{
+    if(!db)return;
+    const r=db.ref('.info/connected');
+    r.on('value',s=>setSS(s.val()?'connected':'disconnected'));
+    return()=>{r.off();rr.current.forEach(r=>r.off());};
+  },[]);
+  return{ss,wr,li,fb:firebaseReady};
+}
+
+/* ═══ UTILS ═══ */
+const fmtRel=iso=>{const m=Math.floor((Date.now()-new Date(iso))/6e4);if(m<1)return'now';if(m<60)return m+'m';const h=Math.floor(m/60);return h<24?h+'h':Math.floor(h/24)+'d';};
+
+/* ═══ MICRO COMPONENTS ═══ */
+const Av=({name,sz=18})=>{
+  const m=TEAM_IX[name];
+  return<div title={name} style={{width:sz,height:sz,fontSize:sz*.38,background:m?.clr||'#64748b',borderRadius:'50%',display:'inline-flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,flexShrink:0}}>
+    {m?.ini||(name||'').slice(0,2).toUpperCase()}
+  </div>;
+};
+
+/* One pip per stage, green=past, blue=current, faint=future */
+const Pips=({current})=>{
+  const ci=STAGE_IX[current]?.i??0;
+  return<div style={{display:'flex',gap:2,flexShrink:0}}>
+    {STAGES.map((s,i)=><div key={s.key} title={s.label} style={{width:9,height:4,borderRadius:2,background:i<ci?'#22c55e':i===ci?'#3b82f6':'var(--t4)',transition:'background .2s'}}/>)}
+  </div>;
+};
+
+/* ═══ HEADER ═══ */
+const Header=({ss,onReset,onCsv,light,onToggle})=>(
+  <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 0 8px',flexWrap:'wrap',gap:8}}>
+    <div style={{display:'flex',alignItems:'center',gap:8}}>
+      <div style={{width:26,height:26,borderRadius:8,background:'linear-gradient(135deg,#8b5cf6,#4f46e5)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+        <span style={{color:'#fff',fontSize:8,fontWeight:900}}>NCA</span>
+      </div>
+      <div>
+        <h1 style={{fontSize:15,fontWeight:900,color:'var(--t1)',letterSpacing:'-.02em',lineHeight:1}}>E2E Model Migration</h1>
+        <p style={{fontSize:9,color:'var(--t3)',marginTop:1}}>Editorial AI — Pipeline Kanban</p>
+      </div>
+    </div>
+    {/* Days remaining pill */}
+    <div style={{display:'flex',alignItems:'center',gap:6,background:'var(--surface)',padding:'5px 14px',borderRadius:20,border:'1px solid var(--border)'}}>
+      <span style={{fontSize:11,fontWeight:700,color:DAYS_LEFT<30?'#ef4444':DAYS_LEFT<60?'#f59e0b':'var(--t1)'}}>{DAYS_LEFT} days remaining</span>
+      <span style={{fontSize:10,color:'var(--t3)'}}>| May 2026</span>
+    </div>
+    <div style={{display:'flex',alignItems:'center',gap:5}}>
+      {[{l:light?'Dark':'Light',fn:onToggle},{l:'CSV',fn:onCsv},{l:'Reset',fn:()=>{if(confirm('Reset to defaults?'))onReset();}}].map(b=>
+        <button key={b.l} onClick={b.fn} style={{fontSize:9,fontWeight:600,padding:'4px 10px',background:'var(--surface)',border:'1px solid var(--border-s)',color:'var(--t3)',borderRadius:99,cursor:'pointer'}}>{b.l}</button>
+      )}
+      <div style={{display:'flex',alignItems:'center',gap:4,background:'var(--surface)',border:'1px solid var(--border)',padding:'4px 10px',borderRadius:99}}>
+        <span style={{width:5,height:5,borderRadius:'50%',flexShrink:0,background:ss==='connected'?'#34d399':ss==='disconnected'?'#f87171':'#94a3b8'}}/>
+        <span style={{fontSize:8,fontWeight:600,color:ss==='connected'?'#34d399':ss==='disconnected'?'#f87171':'var(--t3)'}}>{ss==='connected'?'Live':ss==='disconnected'?'Offline':'Local'}</span>
+      </div>
+    </div>
+  </header>
+);
+
+/* ═══ STATUS PANEL ═══ */
+const StatusPanel=({cards})=>{
+  const done    = cards.filter(c=>c.stage==='prod').length;
+  const blocked = cards.filter(c=>c.blocked).length;
+  const active  = cards.length - done - blocked;
+  const pct     = cards.length ? Math.round(cards.reduce((s,c)=>s+(STAGE_IX[c.stage]?.i??0),0) / (cards.length*(STAGES.length-1))*100) : 0;
+
+  return<div style={{marginBottom:10}}>
+    {/* 4 KPIs */}
+    <div style={{display:'flex',gap:6,marginBottom:8,flexWrap:'wrap'}}>
+      {[
+        {l:'Overall Progress', v:pct+'%',  c:blocked>0?'#ef4444':'var(--accent)'},
+        {l:'Active Tools',     v:active,   c:'#3b82f6'},
+        {l:'Completed',        v:done,     c:'#22c55e'},
+        {l:'Blocked',          v:blocked,  c:blocked?'#ef4444':'var(--t4)'},
+      ].map(m=><div key={m.l} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:'8px 14px',flex:'1 1 90px',boxShadow:'var(--sh)'}}>
+        <div style={{fontSize:8,fontWeight:700,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.08em'}}>{m.l}</div>
+        <div style={{fontSize:20,fontWeight:900,color:m.c,lineHeight:1.1,marginTop:2,fontVariantNumeric:'tabular-nums'}}>{m.v}</div>
+      </div>)}
+    </div>
+    {/* Per-tool strip — tool name clearly visible with pipeline progress */}
+    <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,overflow:'hidden',boxShadow:'var(--sh)'}}>
+      {cards.map(card=>{
+        const tool=TOOL_IX[card.id]; if(!tool)return null;
+        const stage=STAGE_IX[card.stage];
+        return<div key={card.id} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 12px',borderBottom:'1px solid var(--border)'}}>
+          <div style={{width:7,height:7,borderRadius:'50%',background:tool.clr,flexShrink:0}}/>
+          <span style={{fontSize:11,fontWeight:700,color:'var(--t1)',width:120,flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{tool.name}</span>
+          <Pips current={card.stage}/>
+          <span style={{fontSize:9,color:'var(--t3)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',paddingLeft:4}}>{stage?.label}</span>
+          <div style={{width:7,height:7,borderRadius:'50%',background:RAG_CLR[card.rag],flexShrink:0,title:card.rag}}/>
+          {card.blocked&&<span style={{fontSize:7,fontWeight:800,color:'#ef4444',background:'rgba(239,68,68,.12)',padding:'1px 5px',borderRadius:4,border:'1px solid rgba(239,68,68,.2)',textTransform:'uppercase',letterSpacing:'.05em',flexShrink:0}}>Blocked</span>}
+        </div>;
+      })}
+    </div>
+  </div>;
+};
+
+/* ═══ TOOL CARD ═══
+   Layout priority:
+   1. TASK NAME (pipeline stage) — hero, largest text
+   2. TOOL NAME — secondary, rendered in tool's signature colour
+*/
+const ToolCard=({card,onUpdate,onDragStart})=>{
+  const[open,setOpen]=useState(false);
+  const[ed,setEd]=useState(false);
+  const[comment,setCom]=useState(card.comment);
+  const[assignee,setAs]=useState(card.assignee);
+  const[rag,setRag]=useState(card.rag);
+  const[blocked,setBl]=useState(card.blocked);
+
+  const tool=TOOL_IX[card.id];
+  const stage=STAGE_IX[card.stage];
+  if(!tool||!stage)return null;
+
+  const openEdit=()=>{setCom(card.comment);setAs(card.assignee);setRag(card.rag);setBl(card.blocked);setEd(true);};
+  const save=()=>{
+    const ch={};
+    if(comment!==card.comment)ch.comment=comment;
+    if(assignee!==card.assignee)ch.assignee=assignee;
+    if(rag!==card.rag)ch.rag=rag;
+    if(blocked!==card.blocked)ch.blocked=blocked;
+    if(Object.keys(ch).length)onUpdate(card.id,ch);
+    setEd(false);setOpen(false);
+  };
+
+  return<div draggable onDragStart={e=>{onDragStart(e,card.id);e.dataTransfer.effectAllowed='move';}}
+    style={{background:'var(--card)',border:'1px solid var(--border)',borderLeft:'3px solid '+tool.clr,borderRadius:10,cursor:'grab',transition:'all .15s',boxShadow:'var(--sh)',overflow:'hidden'}}
+    onMouseEnter={e=>{e.currentTarget.style.background='var(--card-h)';e.currentTarget.style.borderColor='var(--border-s)';}}
+    onMouseLeave={e=>{e.currentTarget.style.background='var(--card)';e.currentTarget.style.borderColor='var(--border)';}}>
+
+    {/* ① TASK NAME — hero */}
+    <div style={{padding:'9px 10px 3px',display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:6}}>
+      <span onClick={()=>{setOpen(!open);if(ed)setEd(false);}}
+        style={{fontSize:15,fontWeight:900,color:'var(--t1)',letterSpacing:'-.02em',lineHeight:1.2,cursor:'pointer',flex:1}}>
+        {stage.label}
+      </span>
+      <div style={{display:'flex',alignItems:'center',gap:4,flexShrink:0,paddingTop:1}}>
+        <span style={{fontSize:8,fontWeight:800,color:RAG_CLR[card.rag],background:RAG_BG[card.rag],padding:'1px 5px',borderRadius:4,border:`1px solid ${RAG_CLR[card.rag]}40`,textTransform:'uppercase',letterSpacing:'.05em'}}>{card.rag}</span>
+        {card.blocked&&<span style={{fontSize:8,fontWeight:800,color:'#ef4444',background:'rgba(239,68,68,.12)',padding:'1px 5px',borderRadius:4,border:'1px solid rgba(239,68,68,.2)',textTransform:'uppercase',letterSpacing:'.05em'}}>Blocked</span>}
+      </div>
+    </div>
+
+    {/* ② TOOL NAME — secondary, in tool colour */}
+    <div style={{padding:'2px 10px 7px',display:'flex',alignItems:'center',gap:5}}>
+      <div style={{width:6,height:6,borderRadius:'50%',background:tool.clr,flexShrink:0}}/>
+      <span style={{fontSize:11,fontWeight:700,color:tool.clr,letterSpacing:'-.01em'}}>{tool.name}</span>
+      <span style={{fontSize:8,fontWeight:600,color:'var(--accent)',background:'var(--accent-bg)',padding:'1px 5px',borderRadius:99}}>Ph {tool.phase}</span>
+      {tool.jira&&<a href={JIRA+'/'+tool.jira} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()}
+        style={{fontSize:8,fontWeight:700,color:'#60a5fa',background:'rgba(59,130,246,.1)',padding:'1px 4px',borderRadius:4,textDecoration:'none',fontFamily:'monospace'}}>{tool.jira}</a>}
+    </div>
+
+    {/* ③ Footer — assignee + timestamp */}
+    <div style={{padding:'0 10px 8px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+      <div style={{display:'flex',alignItems:'center',gap:4}}>
+        <Av name={card.assignee} sz={16}/>
+        <span style={{fontSize:9,color:'var(--t3)',maxWidth:70,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{card.assignee}</span>
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:5}}>
+        <span style={{fontSize:9,color:'var(--t4)'}}>⏳ {fmtRel(card.lastUpdated)}</span>
+        <button onClick={e=>{e.stopPropagation();setOpen(!open);if(ed)setEd(false);}}
+          style={{fontSize:10,color:'var(--t3)',background:'none',border:'none',cursor:'pointer',padding:0,lineHeight:1}}>{open?'▲':'▼'}</button>
+      </div>
+    </div>
+
+    {/* Comment preview (collapsed) */}
+    {card.comment&&!open&&
+      <div style={{padding:'0 10px 8px'}}>
+        <p style={{fontSize:9,color:'var(--t3)',fontStyle:'italic',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{card.comment}</p>
+      </div>}
+
+    {/* Expanded panel */}
+    {open&&!ed&&
+      <div style={{borderTop:'1px solid var(--border)',padding:'8px 10px',display:'flex',flexDirection:'column',gap:6}}>
+        {card.comment&&<p style={{fontSize:10,color:'var(--t2)',background:'var(--surface)',padding:'5px 8px',borderRadius:6,lineHeight:1.45}}>{card.comment}</p>}
+        <div style={{display:'flex',alignItems:'center',gap:6}}>
+          <span style={{fontSize:9,color:'var(--t3)',flexShrink:0}}>Move to:</span>
+          <select value={card.stage} onChange={e=>onUpdate(card.id,{stage:e.target.value})}
+            style={{fontSize:10,flex:1,background:'var(--surface)',border:'1px solid var(--border-s)',color:'var(--t1)',borderRadius:6,padding:'3px 6px',outline:'none'}}>
+            {STAGES.map(s=><option key={s.key} value={s.key}>{s.label}</option>)}
+          </select>
+        </div>
+        <button onClick={openEdit} style={{fontSize:9,fontWeight:600,color:'var(--accent)',background:'none',border:'none',cursor:'pointer',textAlign:'left',padding:0}}>Edit details →</button>
+      </div>}
+
+    {/* Edit form */}
+    {ed&&
+      <div style={{borderTop:'1px solid var(--border)',padding:'8px 10px',display:'flex',flexDirection:'column',gap:5}} onClick={e=>e.stopPropagation()}>
+        {[
+          {l:'Assignee', el:<select value={assignee} onChange={e=>setAs(e.target.value)} style={iSt}>{TEAM.map(m=><option key={m.name} value={m.name}>{m.name}</option>)}</select>},
+          {l:'RAG',      el:<select value={rag} onChange={e=>setRag(e.target.value)} style={iSt}><option value="green">Green</option><option value="amber">Amber</option><option value="red">Red</option></select>},
+          {l:'Blocked',  el:<label style={{display:'flex',alignItems:'center',gap:5,fontSize:10,color:'var(--t2)',cursor:'pointer'}}><input type="checkbox" checked={blocked} onChange={e=>setBl(e.target.checked)}/> Mark as blocked</label>},
+          {l:'Note',     el:<textarea value={comment} onChange={e=>setCom(e.target.value)} rows={2} style={{...iSt,resize:'none'}}/>},
+        ].map(r=><div key={r.l}><label style={lSt}>{r.l}</label>{r.el}</div>)}
+        <div style={{display:'flex',gap:6,marginTop:2}}>
+          <button onClick={save}          style={{flex:1,fontSize:10,fontWeight:700,background:'rgba(139,92,246,.75)',color:'#fff',padding:'5px 0',borderRadius:8,border:'none',cursor:'pointer'}}>Save</button>
+          <button onClick={()=>setEd(false)} style={{flex:1,fontSize:10,fontWeight:600,background:'var(--surface)',color:'var(--t3)',padding:'5px 0',borderRadius:8,border:'1px solid var(--border)',cursor:'pointer'}}>Cancel</button>
+        </div>
+      </div>}
+  </div>;
+};
+const lSt={fontSize:8,fontWeight:700,color:'var(--t4)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:2,display:'block'};
+const iSt={width:'100%',fontSize:10,padding:'3px 6px',background:'var(--surface)',border:'1px solid var(--border-s)',color:'var(--t1)',borderRadius:6,outline:'none'};
+
+/* ═══ BOARD — columns = pipeline stages ═══ */
+const Board=({cards,onUpdate})=>{
+  const[dragOver,setDO]=useState(null);
+  const dragId=useRef(null);
+  const onDS=useCallback((e,id)=>{dragId.current=id;e.dataTransfer.setData('text/plain',id);},[]);
+  const onDrop=useCallback((e,key)=>{
+    e.preventDefault();setDO(null);
+    const id=e.dataTransfer.getData('text/plain')||dragId.current;
+    if(id)onUpdate(id,{stage:key});
+    dragId.current=null;
+  },[onUpdate]);
+
+  return<div style={{display:'flex',gap:6,overflowX:'auto',paddingBottom:8,flex:1,minHeight:0}}>
+    {STAGES.map((stage,si)=>{
+      const col=cards.filter(c=>c.stage===stage.key);
+      const isO=dragOver===stage.key;
+      return<div key={stage.key}
+        style={{flexShrink:0,width:214,display:'flex',flexDirection:'column',background:'var(--surface)',border:'1px solid '+(isO?'rgba(167,139,250,.4)':'var(--border)'),borderRadius:12,transition:'all .15s',boxShadow:isO?'0 0 18px rgba(139,92,246,.12)':'var(--sh)'}}
+        onDragOver={e=>{e.preventDefault();setDO(stage.key);}} onDragLeave={()=>setDO(null)} onDrop={e=>onDrop(e,stage.key)}>
+        <div style={{padding:'8px 10px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:6}}>
+          <span style={{fontSize:9,fontWeight:800,color:'var(--accent)',background:'var(--accent-bg)',width:16,height:16,borderRadius:4,display:'inline-flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{si+1}</span>
+          <span style={{fontSize:10,fontWeight:700,color:'var(--t2)',flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{stage.label}</span>
+          {col.length>0&&<span style={{fontSize:9,fontWeight:700,color:'var(--t3)',background:'var(--accent-bg)',padding:'1px 6px',borderRadius:99,flexShrink:0}}>{col.length}</span>}
+        </div>
+        <div style={{flex:1,overflowY:'auto',padding:5,display:'flex',flexDirection:'column',gap:5}}>
+          {col.map(c=><ToolCard key={c.id} card={c} onUpdate={onUpdate} onDragStart={onDS}/>)}
+          {col.length===0&&<div style={{display:'flex',alignItems:'center',justifyContent:'center',flex:1,minHeight:48,fontSize:9,color:'var(--t4)',fontStyle:'italic',border:'1px dashed var(--border)',borderRadius:8,margin:2}}>Drop here</div>}
+        </div>
+      </div>;
+    })}
+  </div>;
+};
+
+/* ═══ FILTERS ═══ */
+const Filters=({f,set,clear,cnt})=>{
+  const s={fontSize:10,padding:'4px 7px',background:'var(--surface)',border:'1px solid var(--border-s)',color:'var(--t1)',borderRadius:6,outline:'none'};
+  return<div style={{display:'flex',gap:5,flexWrap:'wrap',alignItems:'center',marginBottom:8}}>
+    <input placeholder="Search tools..." value={f.q} onChange={e=>set('q',e.target.value)} style={{...s,width:130}}/>
+    <select value={f.phase}    onChange={e=>set('phase',e.target.value)}    style={s}><option value="">All Phases</option><option value="1">Phase 1</option><option value="2">Phase 2</option><option value="3">Phase 3</option></select>
+    <select value={f.rag}      onChange={e=>set('rag',e.target.value)}      style={s}><option value="">All RAG</option><option value="green">Green</option><option value="amber">Amber</option><option value="red">Red</option></select>
+    <select value={f.assignee} onChange={e=>set('assignee',e.target.value)} style={s}><option value="">All Owners</option>{TEAM.map(m=><option key={m.name} value={m.name}>{m.name}</option>)}</select>
+    <label style={{display:'flex',alignItems:'center',gap:4,fontSize:10,color:'var(--t3)',cursor:'pointer'}}><input type="checkbox" checked={f.blocked} onChange={e=>set('blocked',e.target.checked)}/> Blocked only</label>
+    {cnt>0&&<button onClick={clear} style={{fontSize:9,fontWeight:700,color:'var(--accent)',background:'var(--accent-bg)',padding:'3px 9px',borderRadius:6,border:'none',cursor:'pointer'}}>Clear ({cnt})</button>}
+  </div>;
+};
+
+/* ═══ CSV ═══ */
+function doCSV(cards){
+  const esc=v=>{const s=String(v??'');return s.includes(',')||s.includes('"')?'"'+s.replace(/"/g,'""')+'"':s;};
+  const h=['Task (Stage)','Tool','Phase','RAG','Blocked','Assignee','Comment','Updated'];
+  const rows=cards.map(c=>{
+    const t=TOOL_IX[c.id]; const si=STAGE_IX[c.stage];
+    return[si?.label,t?.name,t?.phase,c.rag,c.blocked?'Yes':'No',c.assignee,c.comment,new Date(c.lastUpdated).toLocaleString('en-AU')];
+  });
+  const out=[h.map(esc).join(','),...rows.map(r=>r.map(esc).join(','))].join('\r\n');
+  const b=new Blob(['\uFEFF'+out],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='nca-migration-'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(a.href);
+}
+
+/* ═══ APP ═══ */
+const EF={q:'',phase:'',rag:'',assignee:'',blocked:false};
+const App=()=>{
+  const[cards,setCards]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[f,setF]=useState(EF);
+  const skip=useRef(false);
+
+  const[light,setLight]=useState(()=>{try{return localStorage.getItem('nca-theme')==='light';}catch{return false;}});
+  useEffect(()=>{document.body.classList.toggle('light',light);try{localStorage.setItem('nca-theme',light?'light':'dark');}catch{}},[light]);
+
+  const{ss,wr,li,fb}=useSync();
+  const persist=useCallback(c=>{try{localStorage.setItem(LS,JSON.stringify(c));}catch{}if(fb){skip.current=true;wr('cards',c);}},[fb,wr]);
+
+  useEffect(()=>{
+    if(fb){
+      return li('cards',data=>{
+        if(skip.current){skip.current=false;return;}
+        const c=data&&Array.isArray(data)?data:data?Object.values(data):null;
+        setCards(c||defaults());
+        if(!c)wr('cards',defaults());
+        setLoading(false);
+      });
+    }else{
+      try{const r=localStorage.getItem(LS);setCards(r?JSON.parse(r):defaults());}catch{setCards(defaults());}
+      setLoading(false);
+    }
+  },[fb,li,wr]);
+
+  const update=useCallback((id,ch)=>{
+    setCards(prev=>{const next=prev.map(c=>c.id===id?{...c,...ch,lastUpdated:new Date().toISOString()}:c);persist(next);return next;});
+  },[persist]);
+
+  const reset=useCallback(()=>{const d=defaults();setCards(d);persist(d);},[persist]);
+
+  const filtered=useMemo(()=>{
+    let r=[...cards];
+    if(f.q){const q=f.q.toLowerCase();r=r.filter(c=>(TOOL_IX[c.id]?.name||'').toLowerCase().includes(q)||(c.assignee||'').toLowerCase().includes(q));}
+    if(f.phase)    r=r.filter(c=>TOOL_IX[c.id]?.phase===Number(f.phase));
+    if(f.rag)      r=r.filter(c=>c.rag===f.rag);
+    if(f.assignee) r=r.filter(c=>c.assignee===f.assignee);
+    if(f.blocked)  r=r.filter(c=>c.blocked);
+    return r;
+  },[cards,f]);
+
+  const cnt=Object.entries(f).filter(([k,v])=>k==='blocked'?v:v!=='').length;
+
+  if(loading)return<div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh'}}><span style={{color:'var(--t3)',fontSize:12}}>Loading...</span></div>;
+
+  return<div style={{display:'flex',flexDirection:'column',height:'100vh',padding:'0 12px 8px',maxWidth:1800,margin:'0 auto'}}>
+    <Header ss={ss} onReset={reset} onCsv={()=>doCSV(cards)} light={light} onToggle={()=>setLight(p=>!p)}/>
+    <StatusPanel cards={cards}/>
+    <Filters f={f} set={(k,v)=>setF(p=>({...p,[k]:v}))} clear={()=>setF(EF)} cnt={cnt}/>
+    <Board cards={filtered} onUpdate={update}/>
+  </div>;
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
