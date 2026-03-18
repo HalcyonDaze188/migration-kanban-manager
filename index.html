@@ -13,43 +13,43 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 *{font-family:'DM Sans',system-ui,-apple-system,sans-serif}
-body{background:#F4F5F7;min-height:100vh;color:#313131;overflow-x:hidden}
+body{min-height:100vh;overflow-x:hidden}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:#D8D8D8;border-radius:6px}
+::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.12);border-radius:6px}
 body{
-  --bg:#F4F5F7;
-  --surface:#FDFDFD;
+  --bg:#F0F2F5;
+  --surface:#F7F8FA;
   --card:#FFFFFF;
-  --card-h:#FAFAFA;
-  --border:rgba(73,69,79,0.1);
-  --border-s:#E3E3E3;
-  --t1:#313131;
-  --t2:#828282;
-  --t3:#A0A0A0;
-  --t4:#D8D8D8;
-  --accent:#2C62B4;
-  --accent-bg:#EBF3FF;
-  --sh:0 1px 4px rgba(0,0,0,0.04),0 2px 8px rgba(0,0,0,0.03);
-  --card-sh:0 1px 3px rgba(0,0,0,0.06),0 2px 10px rgba(0,0,0,0.04);
+  --card-h:#FAFBFF;
+  --border:rgba(0,0,0,0.07);
+  --border-s:rgba(0,0,0,0.10);
+  --t1:#1A1D23;
+  --t2:#6B7280;
+  --t3:#9CA3AF;
+  --t4:#D1D5DB;
+  --accent:#3B5BDB;
+  --accent-bg:#EEF2FF;
+  --sh:0 1px 3px rgba(0,0,0,0.05),0 1px 8px rgba(0,0,0,0.04);
+  --card-sh:0 1px 2px rgba(0,0,0,0.04),0 2px 8px rgba(0,0,0,0.06);
 }
 body.dark{
-  --bg:#0d0d14;
-  --surface:#13112a;
-  --card:#1a1836;
-  --card-h:#211d40;
+  --bg:#0f0f17;
+  --surface:#161622;
+  --card:#1e1e2e;
+  --card-h:#252538;
   --border:rgba(255,255,255,0.07);
-  --border-s:rgba(255,255,255,0.12);
-  --t1:#f0eeff;
-  --t2:rgba(240,238,255,0.58);
-  --t3:rgba(240,238,255,0.32);
-  --t4:rgba(240,238,255,0.12);
-  --accent:#a78bfa;
-  --accent-bg:rgba(139,92,246,0.12);
-  --sh:0 2px 8px rgba(0,0,0,0.28);
+  --border-s:rgba(255,255,255,0.11);
+  --t1:#E8E8F0;
+  --t2:rgba(232,232,240,0.55);
+  --t3:rgba(232,232,240,0.30);
+  --t4:rgba(232,232,240,0.12);
+  --accent:#818CF8;
+  --accent-bg:rgba(129,140,248,0.12);
+  --sh:0 2px 8px rgba(0,0,0,0.30);
   --card-sh:0 4px 16px rgba(0,0,0,0.22);
 }
-body{background:var(--bg);transition:background .2s,color .2s}
+body{background:var(--bg);color:var(--t1);transition:background .2s,color .2s}
 </style>
 </head>
 <body>
@@ -77,65 +77,82 @@ try{
 <script type="text/babel">
 const{useState,useEffect,useCallback,useRef,useMemo}=React;
 
-const LS='ncau-kanban-v7';
-const FB='kanban_v3';
+const LS='ncau-kanban-v8';
+const FB='kanban_v4';
 const JIRA='https://newscorpaustralia.atlassian.net/browse';
 const DEADLINE=new Date('2026-05-31');
 const DAYS_LEFT=Math.max(0,Math.ceil((DEADLINE-Date.now())/864e5));
 
-const STAGES=[
-  {key:'baseline',  label:'Baseline Analysis'},
-  {key:'model-sel', label:'Model Selection'},
-  {key:'prompt',    label:'Prompt Engineering'},
-  {key:'benchmark', label:'Benchmarking'},
-  {key:'qa',        label:'QA & Safety'},
-  {key:'artie-dev', label:'Artie Dev Deploy'},
-  {key:'uat',       label:'UAT'},
-  {key:'prod',      label:'Production'},
+/* ── Kanban columns = Statuses ── */
+const STATUSES=[
+  {key:'not-started', label:'Not Started', accent:'#6B7280', bg:'rgba(107,114,128,0.08)'},
+  {key:'in-progress', label:'In Progress', accent:'#2563EB', bg:'rgba(37,99,235,0.08)'},
+  {key:'on-hold',     label:'On Hold',     accent:'#D97706', bg:'rgba(217,119,6,0.08)'},
+  {key:'blocked',     label:'Blocked',     accent:'#DC2626', bg:'rgba(220,38,38,0.08)'},
+  {key:'done',        label:'Done',        accent:'#16A34A', bg:'rgba(22,163,74,0.08)'},
 ];
-const STAGE_IX=Object.fromEntries(STAGES.map((s,i)=>[s.key,{...s,i}]));
+const STATUS_IX=Object.fromEntries(STATUSES.map((s,i)=>[s.key,{...s,i}]));
 
+/* Pipeline task list — shown on cards */
+const PIPELINE_TASKS=[
+  '1.1 Environment Setup',
+  '1.2 Story Sourcing & output set-up',
+  '2.1 Model Selection',
+  '2.2 Environment Setup #2',
+  '2.3 Benchmarking',
+  '2.4 Prompt QA + iteration hypercycle',
+  '3.1 Deployment to Artie Dev',
+  '3.2 Dev deployment Pass/Fail Confirmation',
+  '3.3 Deployment to Methode PROD as BETA',
+  '3.4 Methode UAT editorial beta testing',
+  '3.5 Confirm UAT results',
+  '3.6 Go/No-Go Confirmation',
+  '3.7 Deployment to Methode PROD as PROD tool',
+];
+
+/* Tools — cards on the board */
 const TOOLS=[
-  {id:'seo',       name:'SEO',               clr:'#f43f5e',phase:1,jira:'EC-17148',owner:'Tony'},
-  {id:'standfirst',name:'Standfirst',         clr:'#ec4899',phase:1,jira:'EC-17150',owner:'Tony'},
-  {id:'bullet',    name:'Bullet Points',      clr:'#a855f7',phase:1,jira:'',        owner:'Rocky'},
-  {id:'print-hl',  name:'Print Headline V2',  clr:'#8b5cf6',phase:2,jira:'',        owner:'Sayee'},
-  {id:'story',     name:'Storycutter',        clr:'#6366f1',phase:2,jira:'EC-17151',owner:'Erin Nixon'},
-  {id:'ext-hl',    name:'Extended Headline',  clr:'#3b82f6',phase:3,jira:'EC-17152',owner:'Tony'},
-  {id:'short-hl',  name:'Short Headline',     clr:'#0ea5e9',phase:3,jira:'EC-17153',owner:'Tony'},
-  {id:'sports',    name:'Sports Preview',     clr:'#14b8a6',phase:3,jira:'',        owner:'Tony'},
-  {id:'press',     name:'Press Release',      clr:'#22c55e',phase:3,jira:'',        owner:'Tony'},
+  {id:'seo',       name:'SEO',               clr:'#F43F5E', phase:1, jira:'EC-17148'},
+  {id:'standfirst',name:'Standfirst',         clr:'#EC4899', phase:1, jira:'EC-17150'},
+  {id:'bullet',    name:'Bullet Points',      clr:'#A855F7', phase:1, jira:''},
+  {id:'print-hl',  name:'Print Headline V2',  clr:'#8B5CF6', phase:2, jira:''},
+  {id:'story',     name:'Storycutter',        clr:'#6366F1', phase:2, jira:'EC-17151'},
+  {id:'ext-hl',    name:'Extended Headline',  clr:'#3B82F6', phase:2, jira:'EC-17152'},
+  {id:'short-hl',  name:'Short Headline',     clr:'#0EA5E9', phase:3, jira:'EC-17153'},
+  {id:'sports',    name:'Sports Preview',     clr:'#14B8A6', phase:3, jira:''},
+  {id:'press',     name:'Press Release',      clr:'#22C55E', phase:3, jira:''},
 ];
 const TOOL_IX=Object.fromEntries(TOOLS.map(t=>[t.id,t]));
 
 const TEAM=[
-  {name:'Erin Nixon',ini:'EN',clr:'#ec4899'},
-  {name:'Tony',      ini:'TO',clr:'#6366f1'},
-  {name:'Sayee',     ini:'SS',clr:'#8b5cf6'},
-  {name:'Rocky',     ini:'RO',clr:'#f59e0b'},
-  {name:'Neil',      ini:'NE',clr:'#14b8a6'},
-  {name:'Hanz',      ini:'HZ',clr:'#10b981'},
+  {name:'Erin Nixon',ini:'EN',clr:'#EC4899'},
+  {name:'Tony',      ini:'TO',clr:'#6366F1'},
+  {name:'Sayee',     ini:'SS',clr:'#8B5CF6'},
+  {name:'Rocky',     ini:'RO',clr:'#F59E0B'},
+  {name:'Neil',      ini:'NE',clr:'#14B8A6'},
+  {name:'Hanz',      ini:'HZ',clr:'#10B981'},
 ];
 const TEAM_IX=Object.fromEntries(TEAM.map(m=>[m.name,m]));
 
-const RAG={
-  green:{bg:'#CDFADF',text:'#16803C'},
-  amber:{bg:'#FFF0DB',text:'#C2670A'},
-  red:  {bg:'#FFE2E5',text:'#DC2626'},
+const RAG_STYLE={
+  green:{bg:'#DCFCE7',text:'#15803D'},
+  amber:{bg:'#FEF3C7',text:'#B45309'},
+  red:  {bg:'#FEE2E2',text:'#B91C1C'},
 };
 
+/* Source of truth: data from 2026 Migration Tracker spreadsheet */
 function defaults(){
   return[
-    {id:'seo',       stage:'artie-dev',assignee:'Hanz',      rag:'amber',blocked:true, comment:'Ready for Artie Dev. On hold pending infra.'},
-    {id:'standfirst',stage:'artie-dev',assignee:'Hanz',      rag:'amber',blocked:true, comment:'Ready for Artie Dev. On hold pending infra.'},
-    {id:'bullet',    stage:'prompt',   assignee:'Rocky',     rag:'green',blocked:false,comment:'Claude 4.6 selected. Benchmarking next.'},
-    {id:'print-hl',  stage:'prompt',   assignee:'Sayee',     rag:'amber',blocked:false,comment:'Character count issues being ironed out.'},
-    {id:'story',     stage:'model-sel',assignee:'Erin Nixon',rag:'green',blocked:false,comment:'Gemini 3.1 likely model. No benchmark needed.'},
-    {id:'ext-hl',    stage:'baseline', assignee:'Tony',      rag:'green',blocked:false,comment:'Scoring tool being updated across 6 models.'},
-    {id:'short-hl',  stage:'baseline', assignee:'Tony',      rag:'green',blocked:false,comment:'Scoring tool being updated across 6 models.'},
-    {id:'sports',    stage:'baseline', assignee:'Tony',      rag:'red',  blocked:true, comment:'On hold pending legal confirmation.'},
-    {id:'press',     stage:'baseline', assignee:'Tony',      rag:'red',  blocked:true, comment:'On hold pending legal confirmation.'},
-  ].map(c=>({...c,lastUpdated:new Date().toISOString()}));
+    {id:'seo',       status:'on-hold',     currentTask:'3.1 Deployment to Artie Dev',          pct:43, rag:'amber', assignee:'Hanz',       comment:'Ready for Artie Dev deployment. Team are prioritising Print Headline V2 before progressing to Methode deployment.', lastUpdated:new Date().toISOString()},
+    {id:'standfirst',status:'on-hold',     currentTask:'3.1 Deployment to Artie Dev',          pct:43, rag:'amber', assignee:'Hanz',       comment:'Ready for Artie Dev deployment. Team are prioritising Print Headline V2 before progressing to Methode deployment.', lastUpdated:new Date().toISOString()},
+    {id:'print-hl',  status:'in-progress', currentTask:'2.4 Prompt QA + iteration hypercycle', pct:22, rag:'amber', assignee:'Sayee',      comment:'Ironing out last issues in the prompt (character count).', lastUpdated:new Date().toISOString()},
+    {id:'story',     status:'in-progress', currentTask:'2.1 Model Selection',                  pct:18, rag:'green', assignee:'Erin Nixon', comment:'Gemini 3.1 the likely model to progress. Benchmarking not required.', lastUpdated:new Date().toISOString()},
+    {id:'ext-hl',    status:'in-progress', currentTask:'1.2 Story Sourcing & output set-up',   pct:4,  rag:'green', assignee:'Tony',       comment:'Erin is updating the scoring tool to test across all 6 models.', lastUpdated:new Date().toISOString()},
+    {id:'short-hl',  status:'in-progress', currentTask:'1.2 Story Sourcing & output set-up',   pct:4,  rag:'green', assignee:'Tony',       comment:'Erin is updating the scoring tool to test across all 6 models.', lastUpdated:new Date().toISOString()},
+    {id:'sports',    status:'blocked',     currentTask:'1.2 Story Sourcing & output set-up',   pct:4,  rag:'red',   assignee:'Sayee',      comment:'On hold pending legal discussion/confirmation. Sayee is setting up the notebook in the meantime.', lastUpdated:new Date().toISOString()},
+    {id:'press',     status:'blocked',     currentTask:'1.2 Story Sourcing & output set-up',   pct:4,  rag:'red',   assignee:'Sayee',      comment:'On hold pending legal discussion/confirmation. Sayee is setting up the notebook in the meantime.', lastUpdated:new Date().toISOString()},
+    {id:'bullet',    status:'in-progress', currentTask:'2.3 Benchmarking',                     pct:18, rag:'green', assignee:'Rocky',      comment:'Benchmarking underway with Claude 4.6 model selected.', lastUpdated:new Date().toISOString()},
+  ];
 }
 
 /* ── Firebase sync ── */
@@ -160,36 +177,44 @@ function useSync(){
 }
 
 const fmtRel=iso=>{
-  const d=new Date(iso);
-  const m=Math.floor((Date.now()-d)/6e4);
+  const d=new Date(iso);const m=Math.floor((Date.now()-d)/6e4);
   if(m<1)return'now';if(m<60)return m+'m';
   const h=Math.floor(m/60);if(h<24)return h+'h';
   return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
 };
 
 /* ── Avatar ── */
-const Av=({name,sz=20})=>{
+const Av=({name,sz=18})=>{
   const m=TEAM_IX[name];
-  return<div title={name} style={{width:sz,height:sz,fontSize:sz*.42,background:m?.clr||'var(--t4)',borderRadius:'50%',display:'inline-flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,flexShrink:0}}>
+  return<div title={name} style={{width:sz,height:sz,fontSize:sz*.42,background:m?.clr||'#9CA3AF',borderRadius:'50%',display:'inline-flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,flexShrink:0}}>
     {m?.ini||(name||'?').slice(0,2).toUpperCase()}
   </div>;
 };
 
-/* ── Status panel ── */
+/* ── Progress bar ── */
+const ProgressBar=({pct,clr})=>(
+  <div style={{width:'100%',height:3,background:'var(--border-s)',borderRadius:99,overflow:'hidden',marginTop:2}}>
+    <div style={{width:pct+'%',height:'100%',background:clr||'var(--accent)',borderRadius:99,transition:'width .3s'}}/>
+  </div>
+);
+
+/* ── Status panel / KPIs ── */
 const StatusPanel=({cards})=>{
-  const done   =cards.filter(c=>c.stage==='prod').length;
-  const blocked=cards.filter(c=>c.blocked).length;
-  const active =cards.length-done-blocked;
-  const pct    =cards.length?Math.round(cards.reduce((s,c)=>s+(STAGE_IX[c.stage]?.i??0),0)/(cards.length*(STAGES.length-1))*100):0;
+  const done    =cards.filter(c=>c.status==='done').length;
+  const blocked =cards.filter(c=>c.status==='blocked').length;
+  const onHold  =cards.filter(c=>c.status==='on-hold').length;
+  const inProg  =cards.filter(c=>c.status==='in-progress').length;
+  const avgPct  =cards.length?Math.round(cards.reduce((s,c)=>s+(c.pct||0),0)/cards.length):0;
   return<div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
     {[
-      {l:'Overall Progress',v:pct+'%',c:blocked>0?'#DC2626':'var(--accent)'},
-      {l:'Active Tools',    v:active,  c:'var(--accent)'},
-      {l:'Completed',       v:done,    c:'#16803C'},
-      {l:'Blocked',         v:blocked, c:blocked?'#DC2626':'var(--t4)'},
-    ].map(m=><div key={m.l} style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:12,padding:'14px 18px',flex:'1 1 90px',minWidth:80,boxShadow:'var(--sh)'}}>
-      <div style={{fontSize:10,fontWeight:700,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.09em',marginBottom:6}}>{m.l}</div>
-      <div style={{fontSize:22,fontWeight:700,color:m.c,fontVariantNumeric:'tabular-nums',lineHeight:1}}>{m.v}</div>
+      {l:'Avg Progress', v:avgPct+'%', c:blocked>0?'#B91C1C':'var(--accent)'},
+      {l:'In Progress',  v:inProg,     c:'#2563EB'},
+      {l:'On Hold',      v:onHold,     c:'#D97706'},
+      {l:'Blocked',      v:blocked,    c:blocked?'#B91C1C':'var(--t4)'},
+      {l:'Done',         v:done,       c:'#16A34A'},
+    ].map(m=><div key={m.l} style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:12,padding:'12px 16px',flex:'1 1 80px',minWidth:72,boxShadow:'var(--sh)'}}>
+      <div style={{fontSize:9,fontWeight:700,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.09em',marginBottom:5}}>{m.l}</div>
+      <div style={{fontSize:20,fontWeight:700,color:m.c,fontVariantNumeric:'tabular-nums',lineHeight:1}}>{m.v}</div>
     </div>)}
   </div>;
 };
@@ -201,42 +226,57 @@ const ToolCard=({card,onUpdate,onDragStart})=>{
   const[comment,setCom]=useState(card.comment);
   const[assignee,setAs]=useState(card.assignee);
   const[rag,setRag]=useState(card.rag);
-  const[blocked,setBl]=useState(card.blocked);
+  const[currentTask,setTask]=useState(card.currentTask);
+  const[pct,setPct]=useState(card.pct);
   const tool=TOOL_IX[card.id];
   if(!tool)return null;
+  const st=STATUS_IX[card.status];
 
   const save=()=>{
     const ch={};
     if(comment!==card.comment)ch.comment=comment;
     if(assignee!==card.assignee)ch.assignee=assignee;
     if(rag!==card.rag)ch.rag=rag;
-    if(blocked!==card.blocked)ch.blocked=blocked;
+    if(currentTask!==card.currentTask)ch.currentTask=currentTask;
+    if(pct!==card.pct)ch.pct=Number(pct);
     if(Object.keys(ch).length)onUpdate(card.id,ch);
     setEd(false);setOpen(false);
   };
 
   return<div draggable onDragStart={e=>{onDragStart(e,card.id);e.dataTransfer.effectAllowed='move';}}
-    style={{position:'relative',background:'var(--card)',border:'1px solid var(--border-s)',borderLeft:`3px solid ${tool.clr}`,borderRadius:10,padding:'13px 13px 11px',display:'flex',flexDirection:'column',gap:10,cursor:'grab',transition:'box-shadow .15s,background .1s',boxShadow:'var(--card-sh)'}}
-    onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 4px 18px rgba(0,0,0,0.10)';e.currentTarget.style.background='var(--card-h)';}}
+    style={{position:'relative',background:'var(--card)',border:'1px solid var(--border)',borderLeft:`3px solid ${tool.clr}`,borderRadius:10,padding:'12px 12px 10px',display:'flex',flexDirection:'column',gap:9,cursor:'grab',transition:'box-shadow .15s,background .1s',boxShadow:'var(--card-sh)'}}
+    onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 4px 20px rgba(0,0,0,0.10)';e.currentTarget.style.background='var(--card-h)';}}
     onMouseLeave={e=>{e.currentTarget.style.boxShadow='var(--card-sh)';e.currentTarget.style.background='var(--card)';}}>
 
-    {/* Tags */}
-    <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
-      <span style={{background:'var(--accent-bg)',color:'var(--accent)',padding:'3px 8px',borderRadius:4,fontSize:10,fontWeight:700,letterSpacing:'.03em'}}>PH {tool.phase}</span>
-      <span style={{background:RAG[card.rag].bg,color:RAG[card.rag].text,padding:'3px 8px',borderRadius:4,fontSize:10,fontWeight:700,textTransform:'capitalize'}}>{card.rag}</span>
-      {card.blocked&&<span style={{background:'#FFE2E5',color:'#DC2626',padding:'3px 8px',borderRadius:4,fontSize:10,fontWeight:700}}>Blocked</span>}
+    {/* Tags row */}
+    <div style={{display:'flex',flexWrap:'wrap',gap:5,alignItems:'center'}}>
+      <span style={{background:'var(--accent-bg)',color:'var(--accent)',padding:'2px 7px',borderRadius:4,fontSize:10,fontWeight:700,letterSpacing:'.03em'}}>PH {tool.phase}</span>
+      <span style={{background:RAG_STYLE[card.rag].bg,color:RAG_STYLE[card.rag].text,padding:'2px 7px',borderRadius:4,fontSize:10,fontWeight:700,textTransform:'capitalize'}}>{card.rag}</span>
     </div>
 
-    {/* Tool name + note */}
-    <div style={{display:'flex',flexDirection:'column',gap:3}}>
+    {/* Tool name */}
+    <div>
       <span onClick={()=>{setOpen(!open);if(ed)setEd(false);}}
-        style={{fontSize:14,fontWeight:700,color:'var(--t1)',lineHeight:'20px',cursor:'pointer',letterSpacing:'-.01em'}}>
+        style={{fontSize:14,fontWeight:700,color:'var(--t1)',lineHeight:'20px',cursor:'pointer',letterSpacing:'-.01em',display:'block'}}>
         {tool.name}
       </span>
-      {!open&&<span style={{fontSize:11,color:'var(--t2)',lineHeight:'16px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-        {card.comment||'No notes added.'}
-      </span>}
+      {/* Current task */}
+      <span style={{fontSize:11,color:'var(--t2)',lineHeight:'16px',display:'block',marginTop:3,fontWeight:500}}>
+        {card.currentTask}
+      </span>
     </div>
+
+    {/* Progress bar */}
+    <div>
+      <ProgressBar pct={card.pct} clr={st?.accent}/>
+      <span style={{fontSize:10,color:'var(--t3)',marginTop:4,display:'block'}}>{card.pct}% complete</span>
+    </div>
+
+    {/* Comment preview */}
+    {!open&&card.comment&&
+      <span style={{fontSize:11,color:'var(--t2)',lineHeight:'15px',overflow:'hidden',textOverflow:'ellipsis',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}}>
+        {card.comment}
+      </span>}
 
     {/* Expanded view */}
     {open&&!ed&&<div style={{display:'flex',flexDirection:'column',gap:8}}>
@@ -246,12 +286,12 @@ const ToolCard=({card,onUpdate,onDragStart})=>{
         style={{fontSize:11,color:'var(--accent)',textDecoration:'none',fontWeight:600}}>{tool.jira} ↗</a>}
       <div style={{display:'flex',alignItems:'center',gap:8}}>
         <span style={{fontSize:11,color:'var(--t2)',fontWeight:500,flexShrink:0}}>Move to:</span>
-        <select value={card.stage} onChange={e=>onUpdate(card.id,{stage:e.target.value})}
+        <select value={card.status} onChange={e=>onUpdate(card.id,{status:e.target.value})}
           style={{fontSize:11,flex:1,background:'var(--surface)',border:'1px solid var(--border-s)',color:'var(--t1)',borderRadius:6,padding:'4px 6px',outline:'none'}}>
-          {STAGES.map(s=><option key={s.key} value={s.key}>{s.label}</option>)}
+          {STATUSES.map(s=><option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
       </div>
-      <button onClick={()=>{setEd(true);setCom(card.comment);setAs(card.assignee);setRag(card.rag);setBl(card.blocked);}}
+      <button onClick={()=>{setEd(true);setCom(card.comment);setAs(card.assignee);setRag(card.rag);setTask(card.currentTask);setPct(card.pct);}}
         style={{fontSize:10,fontWeight:700,color:'var(--accent)',background:'none',border:'none',cursor:'pointer',textAlign:'left',padding:0,letterSpacing:'.04em'}}>
         EDIT DETAILS
       </button>
@@ -261,10 +301,11 @@ const ToolCard=({card,onUpdate,onDragStart})=>{
     {ed&&<div style={{display:'flex',flexDirection:'column',gap:8}} onClick={e=>e.stopPropagation()}>
       <div style={{height:1,background:'var(--border-s)'}}/>
       {[
-        {l:'Assignee',el:<select value={assignee} onChange={e=>setAs(e.target.value)} style={iSt}>{TEAM.map(m=><option key={m.name} value={m.name}>{m.name}</option>)}</select>},
-        {l:'RAG',     el:<select value={rag} onChange={e=>setRag(e.target.value)} style={iSt}><option value="green">Green</option><option value="amber">Amber</option><option value="red">Red</option></select>},
-        {l:'Blocked', el:<label style={{display:'flex',alignItems:'center',gap:6,fontSize:11,color:'var(--t1)',cursor:'pointer'}}><input type="checkbox" checked={blocked} onChange={e=>setBl(e.target.checked)}/> Mark as blocked</label>},
-        {l:'Note',    el:<textarea value={comment} onChange={e=>setCom(e.target.value)} rows={2} style={{...iSt,resize:'none'}}/>},
+        {l:'Current Task', el:<select value={currentTask} onChange={e=>setTask(e.target.value)} style={iSt}>{PIPELINE_TASKS.map(t=><option key={t} value={t}>{t}</option>)}</select>},
+        {l:'% Complete',   el:<input type="number" min="0" max="100" value={pct} onChange={e=>setPct(e.target.value)} style={iSt}/>},
+        {l:'Assignee',     el:<select value={assignee} onChange={e=>setAs(e.target.value)} style={iSt}>{TEAM.map(m=><option key={m.name} value={m.name}>{m.name}</option>)}</select>},
+        {l:'RAG',          el:<select value={rag} onChange={e=>setRag(e.target.value)} style={iSt}><option value="green">Green</option><option value="amber">Amber</option><option value="red">Red</option></select>},
+        {l:'Note',         el:<textarea value={comment} onChange={e=>setCom(e.target.value)} rows={2} style={{...iSt,resize:'none'}}/>},
       ].map(r=><div key={r.l}><div style={lSt}>{r.l}</div>{r.el}</div>)}
       <div style={{display:'flex',gap:8,marginTop:2}}>
         <button onClick={save} style={{flex:1,fontSize:11,fontWeight:700,background:'var(--accent)',color:'#fff',padding:'7px 0',borderRadius:6,border:'none',cursor:'pointer'}}>Save</button>
@@ -273,12 +314,12 @@ const ToolCard=({card,onUpdate,onDragStart})=>{
     </div>}
 
     {/* Footer */}
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:2}}>
       <div style={{display:'flex',alignItems:'center',gap:7}}>
-        <Av name={card.assignee} sz={18}/>
+        <Av name={card.assignee} sz={16}/>
         <span style={{fontSize:11,color:'var(--t2)',fontWeight:500}}>{card.assignee||'Unassigned'}</span>
       </div>
-      <span style={{fontSize:11,color:'var(--t3)'}}>{fmtRel(card.lastUpdated)}</span>
+      <span style={{fontSize:10,color:'var(--t3)'}}>{fmtRel(card.lastUpdated)}</span>
     </div>
   </div>;
 };
@@ -286,7 +327,7 @@ const ToolCard=({card,onUpdate,onDragStart})=>{
 const lSt={fontSize:10,fontWeight:700,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:4,display:'block'};
 const iSt={width:'100%',fontSize:11,padding:'5px 8px',background:'var(--surface)',border:'1px solid var(--border-s)',color:'var(--t1)',borderRadius:6,outline:'none'};
 
-/* ── Board ── */
+/* ── Board — columns = statuses ── */
 const Board=({cards,onUpdate})=>{
   const[dragOver,setDO]=useState(null);
   const dragId=useRef(null);
@@ -294,29 +335,31 @@ const Board=({cards,onUpdate})=>{
   const onDrop=useCallback((e,key)=>{
     e.preventDefault();setDO(null);
     const id=e.dataTransfer.getData('text/plain')||dragId.current;
-    if(id)onUpdate(id,{stage:key});
+    if(id)onUpdate(id,{status:key});
     dragId.current=null;
   },[onUpdate]);
 
   return<div style={{display:'flex',gap:14,overflowX:'auto',paddingBottom:12,flex:1,minHeight:0,alignItems:'flex-start'}}>
-    {STAGES.map((stage,si)=>{
-      const col=cards.filter(c=>c.stage===stage.key);
-      const isO=dragOver===stage.key;
-      return<div key={stage.key}
-        style={{flexShrink:0,width:238,display:'flex',flexDirection:'column',background:'var(--surface)',border:`1px solid ${isO?'var(--accent)':'var(--border)'}`,borderRadius:12,transition:'border-color .15s,box-shadow .15s',boxShadow:isO?'0 0 0 3px var(--accent-bg)':'var(--sh)',overflow:'hidden'}}
-        onDragOver={e=>{e.preventDefault();setDO(stage.key);}} onDragLeave={()=>setDO(null)} onDrop={e=>onDrop(e,stage.key)}>
+    {STATUSES.map(status=>{
+      const col=cards.filter(c=>c.status===status.key);
+      const isO=dragOver===status.key;
+      return<div key={status.key}
+        style={{flexShrink:0,width:240,display:'flex',flexDirection:'column',background:'var(--surface)',border:`1px solid ${isO?status.accent:'var(--border)'}`,borderRadius:12,transition:'border-color .15s,box-shadow .15s',boxShadow:isO?`0 0 0 3px ${status.bg}`:'var(--sh)',overflow:'hidden'}}
+        onDragOver={e=>{e.preventDefault();setDO(status.key);}} onDragLeave={()=>setDO(null)} onDrop={e=>onDrop(e,status.key)}>
 
         {/* Column header */}
         <div style={{padding:'10px 12px',borderBottom:'1px solid var(--border-s)',display:'flex',alignItems:'center',gap:8,background:'var(--card)'}}>
-          <span style={{fontSize:9,fontWeight:800,color:'var(--accent)',background:'var(--accent-bg)',width:18,height:18,borderRadius:4,display:'inline-flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{si+1}</span>
-          <span style={{fontSize:11,fontWeight:700,color:'var(--t1)',flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{stage.label}</span>
-          {col.length>0&&<span style={{fontSize:10,fontWeight:700,color:'var(--t2)',background:'var(--bg)',padding:'1px 7px',borderRadius:99,flexShrink:0,border:'1px solid var(--border-s)'}}>{col.length}</span>}
+          <span style={{width:8,height:8,borderRadius:'50%',background:status.accent,flexShrink:0}}/>
+          <span style={{fontSize:12,fontWeight:700,color:'var(--t1)',flex:1,letterSpacing:'-.01em'}}>{status.label}</span>
+          {col.length>0&&
+            <span style={{fontSize:10,fontWeight:700,color:status.accent,background:status.bg,padding:'1px 8px',borderRadius:99,flexShrink:0,border:`1px solid ${status.accent}30`}}>{col.length}</span>}
         </div>
 
         {/* Cards */}
-        <div style={{flex:1,overflowY:'auto',padding:'10px',display:'flex',flexDirection:'column',gap:10}}>
+        <div style={{flex:1,overflowY:'auto',padding:10,display:'flex',flexDirection:'column',gap:10}}>
           {col.map(c=><ToolCard key={c.id} card={c} onUpdate={onUpdate} onDragStart={onDS}/>)}
-          {col.length===0&&<div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:56,fontSize:11,color:'var(--t4)',border:'1px dashed var(--border-s)',borderRadius:8}}>Drop here</div>}
+          {col.length===0&&
+            <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:64,fontSize:11,color:'var(--t4)',border:'1px dashed var(--border-s)',borderRadius:8}}>Drop here</div>}
         </div>
       </div>;
     })}
@@ -331,16 +374,15 @@ const Filters=({f,set,clear,cnt})=>{
     <select value={f.phase}    onChange={e=>set('phase',e.target.value)}    style={s}><option value="">All Phases</option><option value="1">Phase 1</option><option value="2">Phase 2</option><option value="3">Phase 3</option></select>
     <select value={f.rag}      onChange={e=>set('rag',e.target.value)}      style={s}><option value="">All RAG</option><option value="green">Green</option><option value="amber">Amber</option><option value="red">Red</option></select>
     <select value={f.assignee} onChange={e=>set('assignee',e.target.value)} style={s}><option value="">All Owners</option>{TEAM.map(m=><option key={m.name} value={m.name}>{m.name}</option>)}</select>
-    <label style={{display:'flex',alignItems:'center',gap:5,fontSize:12,color:'var(--t1)',cursor:'pointer',height:30}}><input type="checkbox" checked={f.blocked} onChange={e=>set('blocked',e.target.checked)}/> Blocked</label>
     {cnt>0&&<button onClick={clear} style={{fontSize:11,fontWeight:700,color:'var(--accent)',background:'var(--accent-bg)',padding:'0 12px',borderRadius:8,border:'none',cursor:'pointer',height:30}}>Clear ({cnt})</button>}
   </div>;
 };
 
 /* ── Header ── */
 const Header=({ss,onReset,onCsv,light,onToggle})=>(
-  <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',paddingBottom:20,flexWrap:'wrap',gap:12}}>
+  <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',paddingBottom:18,flexWrap:'wrap',gap:12}}>
     <div style={{display:'flex',alignItems:'center',gap:12}}>
-      <div style={{width:36,height:36,borderRadius:10,background:'#625B71',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+      <div style={{width:36,height:36,borderRadius:10,background:'#4F46E5',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
         <span style={{color:'#fff',fontSize:10,fontWeight:800,letterSpacing:'.05em'}}>NCA</span>
       </div>
       <div>
@@ -349,9 +391,8 @@ const Header=({ss,onReset,onCsv,light,onToggle})=>(
       </div>
     </div>
 
-    {/* Days remaining */}
     <div style={{display:'flex',alignItems:'center',gap:8,background:'var(--card)',padding:'7px 16px',borderRadius:999,border:'1px solid var(--border-s)',boxShadow:'var(--sh)'}}>
-      <span style={{fontSize:13,fontWeight:700,color:DAYS_LEFT<30?'#DC2626':DAYS_LEFT<60?'#C2670A':'var(--t1)'}}>{DAYS_LEFT} days remaining</span>
+      <span style={{fontSize:13,fontWeight:700,color:DAYS_LEFT<30?'#B91C1C':DAYS_LEFT<60?'#D97706':'var(--t1)'}}>{DAYS_LEFT} days remaining</span>
       <span style={{fontSize:12,color:'var(--t3)'}}>· May 2026</span>
     </div>
 
@@ -360,8 +401,8 @@ const Header=({ss,onReset,onCsv,light,onToggle})=>(
         <button key={b.l} onClick={b.fn} style={{fontSize:11,fontWeight:600,padding:'0 14px',background:'var(--card)',border:'1px solid var(--border-s)',color:'var(--t2)',borderRadius:8,cursor:'pointer',height:30}}>{b.l}</button>
       )}
       <div style={{display:'flex',alignItems:'center',gap:6,background:'var(--card)',border:'1px solid var(--border-s)',padding:'0 12px',borderRadius:8,height:30}}>
-        <span style={{width:7,height:7,borderRadius:'50%',flexShrink:0,background:ss==='connected'?'#16803C':ss==='disconnected'?'#DC2626':'#D8D8D8'}}/>
-        <span style={{fontSize:10,fontWeight:700,color:ss==='connected'?'#16803C':ss==='disconnected'?'#DC2626':'var(--t2)',letterSpacing:'.05em'}}>{ss==='connected'?'LIVE':ss==='disconnected'?'OFFLINE':'LOCAL'}</span>
+        <span style={{width:7,height:7,borderRadius:'50%',flexShrink:0,background:ss==='connected'?'#16A34A':ss==='disconnected'?'#DC2626':'#9CA3AF'}}/>
+        <span style={{fontSize:10,fontWeight:700,color:ss==='connected'?'#16A34A':ss==='disconnected'?'#DC2626':'var(--t2)',letterSpacing:'.05em'}}>{ss==='connected'?'LIVE':ss==='disconnected'?'OFFLINE':'LOCAL'}</span>
       </div>
     </div>
   </header>
@@ -370,15 +411,15 @@ const Header=({ss,onReset,onCsv,light,onToggle})=>(
 /* ── CSV export ── */
 function doCSV(cards){
   const esc=v=>{const s=String(v??'');return s.includes(',')||s.includes('"')?'"'+s.replace(/"/g,'""')+'"':s;};
-  const h=['Tool','Phase','Current Stage','RAG','Blocked','Assignee','Comment','Updated'];
-  const rows=cards.map(c=>{const t=TOOL_IX[c.id];return[t?.name,t?.phase,STAGE_IX[c.stage]?.label,c.rag,c.blocked?'Yes':'No',c.assignee,c.comment,new Date(c.lastUpdated).toLocaleString('en-AU')];});
+  const h=['Tool','Phase','Status','Current Task','% Complete','RAG','Assignee','Comment','Updated'];
+  const rows=cards.map(c=>{const t=TOOL_IX[c.id];return[t?.name,t?.phase,STATUS_IX[c.status]?.label,c.currentTask,c.pct,c.rag,c.assignee,c.comment,new Date(c.lastUpdated).toLocaleString('en-AU')];});
   const out=[h.map(esc).join(','),...rows.map(r=>r.map(esc).join(','))].join('\r\n');
   const b=new Blob(['\uFEFF'+out],{type:'text/csv;charset=utf-8;'});
   const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='nca-migration-'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(a.href);
 }
 
 /* ── App ── */
-const EF={q:'',phase:'',rag:'',assignee:'',blocked:false};
+const EF={q:'',phase:'',rag:'',assignee:''};
 const App=()=>{
   const[cards,setCards]=useState([]);
   const[loading,setLoading]=useState(true);
@@ -417,15 +458,14 @@ const App=()=>{
     if(f.phase)    r=r.filter(c=>TOOL_IX[c.id]?.phase===Number(f.phase));
     if(f.rag)      r=r.filter(c=>c.rag===f.rag);
     if(f.assignee) r=r.filter(c=>c.assignee===f.assignee);
-    if(f.blocked)  r=r.filter(c=>c.blocked);
     return r;
   },[cards,f]);
 
-  const cnt=Object.entries(f).filter(([k,v])=>k==='blocked'?v:v!=='').length;
+  const cnt=Object.entries(f).filter(([,v])=>v!=='').length;
 
   if(loading)return<div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'var(--bg)'}}><span style={{color:'var(--t3)',fontSize:13,fontWeight:500}}>Loading board…</span></div>;
 
-  return<div style={{display:'flex',flexDirection:'column',height:'100vh',padding:'24px 28px 12px',maxWidth:2400,margin:'0 auto'}}>
+  return<div style={{display:'flex',flexDirection:'column',height:'100vh',padding:'22px 26px 10px',maxWidth:2400,margin:'0 auto'}}>
     <Header ss={ss} onReset={reset} onCsv={()=>doCSV(cards)} light={light} onToggle={()=>setLight(p=>!p)}/>
     <StatusPanel cards={cards}/>
     <Filters f={f} set={(k,v)=>setF(p=>({...p,[k]:v}))} clear={()=>setF(EF)} cnt={cnt}/>
