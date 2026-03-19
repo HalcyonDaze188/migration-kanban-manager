@@ -59,13 +59,14 @@ try{
 <script type="text/babel">
 const{useState,useEffect,useCallback,useRef,useMemo}=React;
 
-const LS='ncau-kanban-v9';
-const FB='kanban_v5';
+const LS='ncau-kanban-v10';
+const FB='kanban_v6';
 const JIRA='https://newscorpaustralia.atlassian.net/browse';
 const DEADLINE=new Date('2026-05-31');
 const DAYS_LEFT=Math.max(0,Math.ceil((DEADLINE-Date.now())/864e5));
+const TODAY=new Date().toISOString().slice(0,10);
 
-/* ── Status columns ── */
+/* ── Statuses (columns) ── */
 const STATUSES=[
   {key:'not-started', label:'Not Started', clr:'#6B7280', bg:'rgba(107,114,128,0.08)'},
   {key:'in-progress', label:'In Progress', clr:'#2563EB', bg:'rgba(37,99,235,0.08)'},
@@ -74,7 +75,7 @@ const STATUSES=[
   {key:'done',        label:'Done',        clr:'#16A34A', bg:'rgba(22,163,74,0.08)'},
 ];
 
-/* ── Pipeline tasks (13 per tool) ── */
+/* ── Pipeline tasks ── */
 const TASKS=[
   {id:'1.1',label:'1.1 Environment Setup'},
   {id:'1.2',label:'1.2 Story Sourcing & output set-up'},
@@ -84,8 +85,8 @@ const TASKS=[
   {id:'2.4',label:'2.4 Prompt QA + iteration hypercycle'},
   {id:'3.1',label:'3.1 Deployment to Artie Dev'},
   {id:'3.2',label:'3.2 Dev deployment Pass/Fail'},
-  {id:'3.3',label:'3.3 Deployment to Methode PROD (BETA)'},
-  {id:'3.4',label:'3.4 Methode UAT editorial beta testing'},
+  {id:'3.3',label:'3.3 Deploy to Methode PROD (BETA)'},
+  {id:'3.4',label:'3.4 Methode UAT beta testing'},
   {id:'3.5',label:'3.5 Confirm UAT results'},
   {id:'3.6',label:'3.6 Go/No-Go Confirmation'},
   {id:'3.7',label:'3.7 Deployment to PROD'},
@@ -115,39 +116,136 @@ const TEAM=[
   {name:'Hanz',      ini:'HZ',clr:'#10B981'},
 ];
 const TEAM_IX=Object.fromEntries(TEAM.map(m=>[m.name,m]));
+const RAG_CLR={green:'#16A34A',amber:'#D97706',red:'#DC2626'};
 
-/* ── Default card data from 2026 Migration Tracker ── */
-/* Compact encoding: d=done, p=in-progress, b=blocked, n=not-started */
-const SC={d:'done',p:'in-progress',b:'blocked',n:'not-started',h:'on-hold'};
-const INIT_STATUS={
-  'seo':       'ddddddbnnnnnn',
-  'standfirst':'ddddddbnnnnnn',
-  'print-hl':  'dddddpnnnnnnn',
-  'bullet':    'ddddpnnnnnnnn',
-  'ext-hl':    'dpnnnnnnnnnnn',
-  'story':     'ddddnnnnnnnnn',
-  'short-hl':  'dpnnnnnnnnnnn',
-  'sports':    'dbnnnnnnnnnnn',
-  'press':     'dbnnnnnnnnnnn',
-};
+/* ── Card defaults from 2026 Migration Tracker v6 ──
+   Format per row: [toolId, taskId, status, endDate, assignee, notes] */
+const INIT_DATA=[
+  ['seo','1.1','done','2026-01-16','Sayee',''],
+  ['seo','1.2','done','2026-01-19','Neil',''],
+  ['seo','2.1','done','2026-01-22','Sayee',''],
+  ['seo','2.2','done','2026-01-23','Sayee',''],
+  ['seo','2.3','done','2026-01-27','Neil',''],
+  ['seo','2.4','done','2026-02-04','Neil',''],
+  ['seo','3.1','in-progress','2026-03-19','Hanz','Deployment in progress. Prioritising Print Headline V2 before Methode.'],
+  ['seo','3.2','not-started','2026-03-20','Tony','Quick check in Artie Dev.'],
+  ['seo','3.3','not-started','2026-03-23','Hanz','Inform TDD in Monday meeting.'],
+  ['seo','3.4','not-started','2026-03-30','','Coordinate with Brett Mckeehan.'],
+  ['seo','3.5','not-started','2026-03-31','Neil','Tech sign-off.'],
+  ['seo','3.6','not-started','2026-04-02','',''],
+  ['seo','3.7','not-started','2026-04-06','',''],
+  ['standfirst','1.1','done','2026-01-20','Sayee',''],
+  ['standfirst','1.2','done','2026-01-22','Neil',''],
+  ['standfirst','2.1','done','2026-01-27','Sayee',''],
+  ['standfirst','2.2','done','2026-01-28','Sayee',''],
+  ['standfirst','2.3','done','2026-01-30','Sayee',''],
+  ['standfirst','2.4','done','2026-02-05','Sayee',''],
+  ['standfirst','3.1','in-progress','2026-03-19','Hanz','PM notifies DevOps for Artie Dev deployment.'],
+  ['standfirst','3.2','not-started','2026-03-20','Sayee','Quick check in Artie Dev.'],
+  ['standfirst','3.3','not-started','2026-03-23','Hanz',''],
+  ['standfirst','3.4','not-started','2026-03-30','','Coordinate with Brett Mckeehan.'],
+  ['standfirst','3.5','not-started','2026-03-31','Sayee',''],
+  ['standfirst','3.6','not-started','2026-04-02','',''],
+  ['standfirst','3.7','not-started','2026-04-06','',''],
+  ['print-hl','1.1','done','2026-01-28','Sayee',''],
+  ['print-hl','1.2','done','2026-01-30','Neil',''],
+  ['print-hl','2.1','done','2026-02-25','Sayee','On hold while Hanz build Streamlit app.'],
+  ['print-hl','2.2','done','2026-02-26','Sayee',''],
+  ['print-hl','2.3','done','2026-03-03','Neil',''],
+  ['print-hl','2.4','done','2026-03-10','Neil',''],
+  ['print-hl','3.1','in-progress','2026-03-19','Hanz',''],
+  ['print-hl','3.2','not-started','2026-03-20','Tony',''],
+  ['print-hl','3.3','not-started','2026-03-23','Hanz',''],
+  ['print-hl','3.4','not-started','2026-03-31','',''],
+  ['print-hl','3.5','not-started','2026-04-02','Neil',''],
+  ['print-hl','3.6','not-started','2026-04-07','',''],
+  ['print-hl','3.7','not-started','2026-04-10','',''],
+  ['bullet','1.1','done','2026-01-29','Sayee',''],
+  ['bullet','1.2','done','2026-02-16','Neil',''],
+  ['bullet','2.1','done','2026-03-05','Sayee','Gemini & Claude models both progressing.'],
+  ['bullet','2.2','done','2026-03-09','Sayee',''],
+  ['bullet','2.3','done','2026-03-12','Neil',''],
+  ['bullet','2.4','done','2026-03-19','Neil',''],
+  ['bullet','3.1','in-progress','2026-03-24','Hanz',''],
+  ['bullet','3.2','not-started','2026-03-26','Tony',''],
+  ['bullet','3.3','not-started','2026-03-30','Hanz',''],
+  ['bullet','3.4','not-started','2026-04-07','',''],
+  ['bullet','3.5','not-started','2026-04-09','Neil',''],
+  ['bullet','3.6','not-started','2026-04-15','',''],
+  ['bullet','3.7','not-started','2026-04-21','',''],
+  ['ext-hl','1.1','done','2026-02-27','Sayee',''],
+  ['ext-hl','1.2','in-progress','2026-03-19','Neil',''],
+  ['ext-hl','2.1','not-started','2026-03-24','Sayee',''],
+  ['ext-hl','2.2','not-started','2026-03-25','Sayee',''],
+  ['ext-hl','2.3','not-started','2026-03-30','Neil',''],
+  ['ext-hl','2.4','not-started','2026-04-06','Neil',''],
+  ['ext-hl','3.1','not-started','2026-04-09','Hanz',''],
+  ['ext-hl','3.2','not-started','2026-04-10','Tony',''],
+  ['ext-hl','3.3','not-started','2026-04-13','Hanz',''],
+  ['ext-hl','3.4','not-started','2026-04-21','',''],
+  ['ext-hl','3.5','not-started','2026-04-23','Neil',''],
+  ['ext-hl','3.6','not-started','2026-04-28','',''],
+  ['ext-hl','3.7','not-started','2026-05-01','',''],
+  ['story','1.1','done','2026-03-03','Sayee',''],
+  ['story','1.2','done','2026-03-04','Neil',''],
+  ['story','2.1','done','2026-03-10','Sayee','Claude 4.6'],
+  ['story','2.2','done','2026-03-10','Sayee',''],
+  ['story','2.3','not-started','2026-03-12','Neil','Benchmarking not required.'],
+  ['story','2.4','done','2026-03-18','Neil',''],
+  ['story','3.1','in-progress','2026-03-20','Hanz',''],
+  ['story','3.2','not-started','2026-03-23','Tony',''],
+  ['story','3.3','not-started','2026-03-24','Hanz',''],
+  ['story','3.4','not-started','2026-03-31','',''],
+  ['story','3.5','not-started','2026-04-01','Neil',''],
+  ['story','3.6','not-started','2026-04-08','',''],
+  ['story','3.7','not-started','2026-04-13','',''],
+  ['short-hl','1.1','done','2026-03-03','Sayee',''],
+  ['short-hl','1.2','in-progress','2026-03-11','Neil',''],
+  ['short-hl','2.1','not-started','2026-03-17','Sayee',''],
+  ['short-hl','2.2','not-started','2026-03-18','Sayee',''],
+  ['short-hl','2.3','not-started','2026-03-23','Neil',''],
+  ['short-hl','2.4','not-started','2026-03-30','Neil',''],
+  ['short-hl','3.1','not-started','2026-04-02','Hanz',''],
+  ['short-hl','3.2','not-started','2026-04-03','Tony',''],
+  ['short-hl','3.3','not-started','2026-04-06','Hanz',''],
+  ['short-hl','3.4','not-started','2026-04-14','',''],
+  ['short-hl','3.5','not-started','2026-04-16','Neil',''],
+  ['short-hl','3.6','not-started','2026-04-21','',''],
+  ['short-hl','3.7','not-started','2026-04-24','',''],
+  ['sports','1.1','done','2026-03-03','Sayee','Set-up in Streamlit.'],
+  ['sports','1.2','blocked','2026-03-10','Neil',''],
+  ['sports','2.1','not-started','2026-03-13','Sayee',''],
+  ['sports','2.2','not-started','2026-03-13','Sayee',''],
+  ['sports','2.3','not-started','2026-03-11','Neil',''],
+  ['sports','2.4','not-started','2026-03-13','Neil',''],
+  ['sports','3.1','not-started','2026-03-18','Hanz',''],
+  ['sports','3.2','not-started','2026-03-19','Tony',''],
+  ['sports','3.3','not-started','2026-03-20','Hanz',''],
+  ['sports','3.4','not-started','2026-03-30','',''],
+  ['sports','3.5','not-started','2026-04-01','Neil',''],
+  ['sports','3.6','not-started','2026-04-06','',''],
+  ['sports','3.7','not-started','2026-04-09','',''],
+  ['press','1.1','done','2026-03-03','Sayee','Set-up in Streamlit.'],
+  ['press','1.2','blocked','2026-03-10','Neil',''],
+  ['press','2.1','not-started','2026-03-12','Sayee',''],
+  ['press','2.2','not-started','2026-03-13','Sayee',''],
+  ['press','2.3','not-started','2026-03-17','Neil',''],
+  ['press','2.4','not-started','2026-03-19','Neil',''],
+  ['press','3.1','not-started','2026-03-24','Hanz',''],
+  ['press','3.2','not-started','2026-03-25','Tony',''],
+  ['press','3.3','not-started','2026-03-26','Hanz',''],
+  ['press','3.4','not-started','2026-04-03','',''],
+  ['press','3.5','not-started','2026-04-07','Neil',''],
+  ['press','3.6','not-started','2026-04-10','',''],
+  ['press','3.7','not-started','2026-04-15','',''],
+];
 
 function defaults(){
-  const cards=[];
-  for(const tool of TOOLS){
-    const codes=INIT_STATUS[tool.id]||'nnnnnnnnnnnnn';
-    TASKS.forEach((task,i)=>{
-      cards.push({
-        id:tool.id+'__'+task.id,
-        toolId:tool.id,
-        taskId:task.id,
-        status:SC[codes[i]]||'not-started',
-        notes:'',
-        assignee:tool.id==='story'?'Erin Nixon':tool.id==='print-hl'?'Sayee':tool.id==='bullet'?'Rocky':tool.id==='seo'||tool.id==='standfirst'?'Hanz':tool.id==='sports'||tool.id==='press'?'Sayee':'Tony',
-        lastUpdated:new Date().toISOString(),
-      });
-    });
-  }
-  return cards;
+  return INIT_DATA.map(([toolId,taskId,status,endDate,assignee,notes])=>({
+    id:toolId+'__'+taskId,toolId,taskId,status,endDate,assignee,
+    rag:status==='blocked'?'red':status==='done'?'green':'amber',
+    notes,lastUpdated:new Date().toISOString(),
+  }));
 }
 
 /* ── Firebase sync ── */
@@ -165,29 +263,29 @@ function useSync(){
   return{ss,wr,li,fb:firebaseReady};
 }
 
-const fmtRel=iso=>{const d=new Date(iso);const m=Math.floor((Date.now()-d)/6e4);if(m<1)return'now';if(m<60)return m+'m';const h=Math.floor(m/60);if(h<24)return h+'h';return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});};
+/* Format end date as "19 Mar" */
+const fmtDate=d=>{if(!d)return'';const p=new Date(d+'T00:00:00');return p.toLocaleDateString('en-GB',{day:'numeric',month:'short'});};
+const isOverdue=(d,st)=>d&&st!=='done'&&d<TODAY;
+const fmtRel=iso=>{const m=Math.floor((Date.now()-new Date(iso))/6e4);if(m<1)return'now';if(m<60)return m+'m';const h=Math.floor(m/60);if(h<24)return h+'h';return new Date(iso).toLocaleDateString('en-GB',{day:'2-digit',month:'short'});};
 
 /* ── Avatar ── */
-const Av=({name,sz=16})=>{
+const Av=({name,sz=15})=>{
   const m=TEAM_IX[name];
-  return<div title={name} style={{width:sz,height:sz,fontSize:sz*.42,background:m?.clr||'#9CA3AF',borderRadius:'50%',display:'inline-flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,flexShrink:0}}>{m?.ini||(name||'?').slice(0,2).toUpperCase()}</div>;
+  return<div title={name} style={{width:sz,height:sz,fontSize:sz*.42,background:m?.clr||'#9CA3AF',borderRadius:'50%',display:'inline-flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,flexShrink:0}}>{m?.ini||(name?name.slice(0,2).toUpperCase():'??')}</div>;
 };
 
 /* ── KPIs ── */
 const KPIs=({cards})=>{
-  const total=cards.length;
-  const done=cards.filter(c=>c.status==='done').length;
+  const total=cards.length;const done=cards.filter(c=>c.status==='done').length;
   const prog=cards.filter(c=>c.status==='in-progress').length;
   const blk=cards.filter(c=>c.status==='blocked').length;
-  const hold=cards.filter(c=>c.status==='on-hold').length;
   const pct=total?Math.round(done/total*100):0;
-  return<div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>
+  return<div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}>
     {[
-      {l:'Overall',  v:pct+'%', c:blk>0?'#DC2626':'var(--accent)'},
-      {l:'In Progress',v:prog,  c:'#2563EB'},
-      {l:'Blocked',  v:blk,     c:blk?'#DC2626':'var(--t4)'},
-      {l:'On Hold',  v:hold,    c:hold?'#D97706':'var(--t4)'},
-      {l:'Done',     v:done+'/'+total, c:'#16A34A'},
+      {l:'Overall',v:pct+'%',c:blk>0?'#DC2626':'var(--accent)'},
+      {l:'In Progress',v:prog,c:'#2563EB'},
+      {l:'Blocked',v:blk,c:blk?'#DC2626':'var(--t4)'},
+      {l:'Done',v:done+'/'+total,c:'#16A34A'},
     ].map(m=><div key={m.l} style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:10,padding:'10px 14px',flex:'1 1 70px',minWidth:65,boxShadow:'var(--sh)'}}>
       <div style={{fontSize:9,fontWeight:700,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.09em',marginBottom:4}}>{m.l}</div>
       <div style={{fontSize:18,fontWeight:700,color:m.c,fontVariantNumeric:'tabular-nums',lineHeight:1}}>{m.v}</div>
@@ -196,71 +294,72 @@ const KPIs=({cards})=>{
 };
 
 /* ── Task Card ──
-   Hero: Task name (what work)
-   Secondary: Tool name in tool colour (which product)
+   Shows at a glance: Task name, Tool name (colour), RAG dot, End date, Assignee
+   Status changed by drag-and-drop only — no dropdown.
 */
 const TaskCard=({card,onUpdate,onDragStart})=>{
-  const[open,setOpen]=useState(false);
   const[ed,setEd]=useState(false);
   const[notes,setNotes]=useState(card.notes);
   const[assignee,setAs]=useState(card.assignee);
+  const[rag,setRag]=useState(card.rag);
   const tool=TOOL_IX[card.toolId];
   const task=TASK_IX[card.taskId];
   if(!tool||!task)return null;
+  const overdue=isOverdue(card.endDate,card.status);
 
   const save=()=>{
     const ch={};
     if(notes!==card.notes)ch.notes=notes;
     if(assignee!==card.assignee)ch.assignee=assignee;
+    if(rag!==card.rag)ch.rag=rag;
     if(Object.keys(ch).length)onUpdate(card.id,ch);
-    setEd(false);setOpen(false);
+    setEd(false);
   };
 
   return<div draggable onDragStart={e=>{onDragStart(e,card.id);e.dataTransfer.effectAllowed='move';}}
-    style={{background:'var(--card)',border:'1px solid var(--border)',borderLeft:`3px solid ${tool.clr}`,borderRadius:8,padding:'9px 10px 8px',display:'flex',flexDirection:'column',gap:6,cursor:'grab',transition:'box-shadow .12s',boxShadow:'var(--card-sh)'}}
+    style={{background:'var(--card)',border:'1px solid var(--border)',borderLeft:`3px solid ${tool.clr}`,borderRadius:8,padding:'8px 10px',display:'flex',flexDirection:'column',gap:5,cursor:'grab',transition:'box-shadow .12s',boxShadow:'var(--card-sh)'}}
     onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 3px 14px rgba(0,0,0,0.10)';}}
     onMouseLeave={e=>{e.currentTarget.style.boxShadow='var(--card-sh)';}}>
 
-    {/* Task name — hero */}
-    <span onClick={()=>{setOpen(!open);if(ed)setEd(false);}}
-      style={{fontSize:12,fontWeight:700,color:'var(--t1)',lineHeight:'16px',cursor:'pointer',letterSpacing:'-.01em'}}>
-      {task.label}
-    </span>
-
-    {/* Tool name — secondary, in tool colour */}
-    <div style={{display:'flex',alignItems:'center',gap:5}}>
-      <span style={{width:6,height:6,borderRadius:'50%',background:tool.clr,flexShrink:0}}/>
-      <span style={{fontSize:10,fontWeight:700,color:tool.clr,letterSpacing:'-.01em'}}>{tool.name}</span>
-      <span style={{fontSize:9,color:'var(--t3)',marginLeft:'auto'}}>{fmtRel(card.lastUpdated)}</span>
+    {/* Row 1: Task name + RAG dot */}
+    <div style={{display:'flex',alignItems:'flex-start',gap:6}}>
+      <span style={{width:7,height:7,borderRadius:'50%',background:RAG_CLR[card.rag],flexShrink:0,marginTop:4}}/>
+      <span onClick={()=>setEd(!ed)} style={{fontSize:12,fontWeight:700,color:'var(--t1)',lineHeight:'16px',cursor:'pointer',flex:1,letterSpacing:'-.01em'}}>
+        {task.label}
+      </span>
     </div>
 
-    {/* Assignee row */}
-    <div style={{display:'flex',alignItems:'center',gap:5}}>
-      <Av name={card.assignee} sz={14}/>
-      <span style={{fontSize:10,color:'var(--t2)'}}>{card.assignee}</span>
+    {/* Row 2: Tool name in colour */}
+    <div style={{display:'flex',alignItems:'center',gap:5,paddingLeft:13}}>
+      <span style={{fontSize:10,fontWeight:700,color:tool.clr}}>{tool.name}</span>
+      {tool.jira&&<span style={{fontSize:9,color:'var(--t3)',fontFamily:'monospace'}}>{tool.jira}</span>}
+    </div>
+
+    {/* Row 3: Assignee + End date */}
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',paddingLeft:13}}>
+      <div style={{display:'flex',alignItems:'center',gap:5}}>
+        {card.assignee?<><Av name={card.assignee} sz={14}/><span style={{fontSize:10,color:'var(--t2)'}}>{card.assignee}</span></>
+        :<span style={{fontSize:10,color:'var(--t4)',fontStyle:'italic'}}>Unassigned</span>}
+      </div>
+      {card.endDate&&
+        <span style={{fontSize:10,fontWeight:600,color:overdue?'#DC2626':'var(--t3)',background:overdue?'#FEE2E2':'transparent',padding:overdue?'1px 5px':0,borderRadius:4}}>
+          {overdue?'Overdue · ':''}{fmtDate(card.endDate)}
+        </span>}
     </div>
 
     {/* Notes preview */}
-    {!open&&card.notes&&<span style={{fontSize:10,color:'var(--t3)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{card.notes}</span>}
+    {!ed&&card.notes&&<div style={{paddingLeft:13}}><span style={{fontSize:10,color:'var(--t3)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{card.notes}</span></div>}
 
-    {/* Expanded */}
-    {open&&!ed&&<div style={{display:'flex',flexDirection:'column',gap:6,borderTop:'1px solid var(--border-s)',paddingTop:6}}>
-      {card.notes&&<p style={{fontSize:11,color:'var(--t1)',lineHeight:'16px'}}>{card.notes}</p>}
-      {tool.jira&&<a href={JIRA+'/'+tool.jira} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:'var(--accent)',textDecoration:'none',fontWeight:600}}>{tool.jira} ↗</a>}
-      <div style={{display:'flex',alignItems:'center',gap:6}}>
-        <span style={{fontSize:10,color:'var(--t2)',fontWeight:500}}>Move to:</span>
-        <select value={card.status} onChange={e=>onUpdate(card.id,{status:e.target.value})} style={{fontSize:10,flex:1,background:'var(--surface)',border:'1px solid var(--border-s)',color:'var(--t1)',borderRadius:4,padding:'3px 5px',outline:'none'}}>
-          {STATUSES.map(s=><option key={s.key} value={s.key}>{s.label}</option>)}
-        </select>
+    {/* Edit form (inline, toggled by clicking task name) */}
+    {ed&&<div style={{display:'flex',flexDirection:'column',gap:6,borderTop:'1px solid var(--border-s)',paddingTop:6,marginTop:2}} onClick={e=>e.stopPropagation()}>
+      <div><div style={lSt}>RAG</div>
+        <div style={{display:'flex',gap:6}}>
+          {['green','amber','red'].map(r=><button key={r} onClick={()=>setRag(r)} style={{width:20,height:20,borderRadius:'50%',background:RAG_CLR[r],border:rag===r?'2px solid var(--t1)':'2px solid transparent',cursor:'pointer',transition:'border .1s'}}/>)}
+        </div>
       </div>
-      <button onClick={()=>{setEd(true);setNotes(card.notes);setAs(card.assignee);}} style={{fontSize:9,fontWeight:700,color:'var(--accent)',background:'none',border:'none',cursor:'pointer',textAlign:'left',padding:0,letterSpacing:'.04em'}}>EDIT</button>
-    </div>}
-
-    {/* Edit */}
-    {ed&&<div style={{display:'flex',flexDirection:'column',gap:6,borderTop:'1px solid var(--border-s)',paddingTop:6}} onClick={e=>e.stopPropagation()}>
-      <div><div style={{fontSize:9,fontWeight:700,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:3}}>Assignee</div>
-        <select value={assignee} onChange={e=>setAs(e.target.value)} style={iSt}>{TEAM.map(m=><option key={m.name} value={m.name}>{m.name}</option>)}</select></div>
-      <div><div style={{fontSize:9,fontWeight:700,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:3}}>Notes</div>
+      <div><div style={lSt}>Assignee</div>
+        <select value={assignee} onChange={e=>setAs(e.target.value)} style={iSt}><option value="">Unassigned</option>{TEAM.map(m=><option key={m.name} value={m.name}>{m.name}</option>)}</select></div>
+      <div><div style={lSt}>Notes</div>
         <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={2} style={{...iSt,resize:'none'}}/></div>
       <div style={{display:'flex',gap:6}}>
         <button onClick={save} style={{flex:1,fontSize:10,fontWeight:700,background:'var(--accent)',color:'#fff',padding:'5px 0',borderRadius:5,border:'none',cursor:'pointer'}}>Save</button>
@@ -269,6 +368,7 @@ const TaskCard=({card,onUpdate,onDragStart})=>{
     </div>}
   </div>;
 };
+const lSt={fontSize:9,fontWeight:700,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:3};
 const iSt={width:'100%',fontSize:11,padding:'4px 6px',background:'var(--surface)',border:'1px solid var(--border-s)',color:'var(--t1)',borderRadius:5,outline:'none'};
 
 /* ── Board ── */
@@ -288,7 +388,7 @@ const Board=({cards,onUpdate})=>{
       const col=cards.filter(c=>c.status===status.key);
       const isO=dragOver===status.key;
       return<div key={status.key}
-        style={{flexShrink:0,flex:'1 1 0',minWidth:200,maxWidth:320,display:'flex',flexDirection:'column',background:'var(--surface)',border:`1px solid ${isO?status.clr:'var(--border)'}`,borderRadius:10,transition:'border-color .15s',boxShadow:isO?`0 0 0 2px ${status.bg}`:'var(--sh)',overflow:'hidden'}}
+        style={{flexShrink:0,flex:'1 1 0',minWidth:200,maxWidth:340,display:'flex',flexDirection:'column',background:'var(--surface)',border:`1px solid ${isO?status.clr:'var(--border)'}`,borderRadius:10,transition:'border-color .15s',boxShadow:isO?`0 0 0 2px ${status.bg}`:'var(--sh)',overflow:'hidden'}}
         onDragOver={e=>{e.preventDefault();setDO(status.key);}} onDragLeave={()=>setDO(null)} onDrop={e=>onDrop(e,status.key)}>
 
         <div style={{padding:'8px 10px',borderBottom:'1px solid var(--border-s)',display:'flex',alignItems:'center',gap:7,background:'var(--card)',flexShrink:0}}>
@@ -297,7 +397,7 @@ const Board=({cards,onUpdate})=>{
           <span style={{fontSize:10,fontWeight:700,color:status.clr,background:status.bg,padding:'1px 7px',borderRadius:99,border:`1px solid ${status.clr}25`}}>{col.length}</span>
         </div>
 
-        <div style={{flex:1,overflowY:'auto',padding:8,display:'flex',flexDirection:'column',gap:8}}>
+        <div style={{flex:1,overflowY:'auto',padding:7,display:'flex',flexDirection:'column',gap:7}}>
           {col.map(c=><TaskCard key={c.id} card={c} onUpdate={onUpdate} onDragStart={onDS}/>)}
           {col.length===0&&<div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:56,fontSize:11,color:'var(--t4)',border:'1px dashed var(--border-s)',borderRadius:6}}>Drop here</div>}
         </div>
@@ -311,8 +411,7 @@ const Filters=({f,set,clear,cnt})=>{
   const s={fontSize:11,padding:'4px 8px',background:'var(--card)',border:'1px solid var(--border-s)',color:'var(--t1)',borderRadius:6,outline:'none',height:28};
   return<div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
     <select value={f.tool} onChange={e=>set('tool',e.target.value)} style={{...s,fontWeight:f.tool?700:400}}>
-      <option value="">All Tools</option>
-      {TOOLS.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+      <option value="">All Tools</option>{TOOLS.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
     </select>
     <select value={f.phase} onChange={e=>set('phase',e.target.value)} style={s}><option value="">All Phases</option><option value="1">Phase 1</option><option value="2">Phase 2</option><option value="3">Phase 3</option></select>
     <select value={f.assignee} onChange={e=>set('assignee',e.target.value)} style={s}><option value="">All Owners</option>{TEAM.map(m=><option key={m.name} value={m.name}>{m.name}</option>)}</select>
@@ -324,7 +423,7 @@ const Filters=({f,set,clear,cnt})=>{
 
 /* ── Header ── */
 const Header=({ss,onReset,onCsv,light,onToggle})=>(
-  <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',paddingBottom:16,flexWrap:'wrap',gap:10}}>
+  <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',paddingBottom:14,flexWrap:'wrap',gap:10}}>
     <div style={{display:'flex',alignItems:'center',gap:10}}>
       <div style={{width:32,height:32,borderRadius:8,background:'#4F46E5',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
         <span style={{color:'#fff',fontSize:9,fontWeight:800,letterSpacing:'.05em'}}>NCA</span>
@@ -353,8 +452,8 @@ const Header=({ss,onReset,onCsv,light,onToggle})=>(
 /* ── CSV ── */
 function doCSV(cards){
   const esc=v=>{const s=String(v??'');return s.includes(',')||s.includes('"')?'"'+s.replace(/"/g,'""')+'"':s;};
-  const h=['Task','Tool','Phase','Status','Assignee','Notes','Updated'];
-  const rows=cards.map(c=>{const t=TOOL_IX[c.toolId];const tk=TASK_IX[c.taskId];const st=STATUSES.find(s=>s.key===c.status);return[tk?.label,t?.name,t?.phase,st?.label,c.assignee,c.notes,new Date(c.lastUpdated).toLocaleString('en-AU')];});
+  const h=['Task','Tool','Phase','Status','RAG','End Date','Assignee','Notes'];
+  const rows=cards.map(c=>{const t=TOOL_IX[c.toolId];const tk=TASK_IX[c.taskId];const st=STATUSES.find(s=>s.key===c.status);return[tk?.label,t?.name,t?.phase,st?.label,c.rag,c.endDate,c.assignee,c.notes];});
   const out=[h.map(esc).join(','),...rows.map(r=>r.map(esc).join(','))].join('\r\n');
   const b=new Blob(['\uFEFF'+out],{type:'text/csv;charset=utf-8;'});
   const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='nca-migration-'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(a.href);
@@ -406,7 +505,7 @@ const App=()=>{
 
   const cnt=Object.entries(f).filter(([k,v])=>typeof v==='boolean'?v:v!=='').length;
 
-  if(loading)return<div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'var(--bg)'}}><span style={{color:'var(--t3)',fontSize:13,fontWeight:500}}>Loading board…</span></div>;
+  if(loading)return<div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'var(--bg)'}}><span style={{color:'var(--t3)',fontSize:13}}>Loading board…</span></div>;
 
   return<div style={{display:'flex',flexDirection:'column',height:'100vh',padding:'20px 24px 10px',maxWidth:2400,margin:'0 auto'}}>
     <Header ss={ss} onReset={reset} onCsv={()=>doCSV(cards)} light={light} onToggle={()=>setLight(p=>!p)}/>
