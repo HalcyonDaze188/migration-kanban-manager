@@ -429,15 +429,19 @@ const CardModal=({card,onUpdate,onClose})=>{
 /* ── Task Card ──
    Shows at a glance: Task name, Tool name (colour), RAG dot, End date, Assignee.
    Click to open full modal editor. Status changed by drag-and-drop only.
+   Uses mouseDown/mouseUp tracking to distinguish clicks from drags.
 */
 const TaskCard=({card,onDragStart,onClick})=>{
   const tool=TOOL_IX[card.toolId];
   const task=TASK_IX[card.taskId];
+  const didDrag=useRef(false);
   if(!tool||!task)return null;
   const overdue=isOverdue(card.endDate,card.status);
 
-  return<div draggable onDragStart={e=>{onDragStart(e,card.id);e.dataTransfer.effectAllowed='move';}}
-    onClick={()=>onClick(card)}
+  return<div draggable
+    onMouseDown={()=>{didDrag.current=false;}}
+    onDragStart={e=>{didDrag.current=true;onDragStart(e,card.id);e.dataTransfer.effectAllowed='move';}}
+    onMouseUp={()=>{if(!didDrag.current)onClick(card);}}
     style={{background:'var(--card)',border:'1px solid var(--border)',borderLeft:`3px solid ${tool.clr}`,borderRadius:8,padding:'8px 10px',display:'flex',flexDirection:'column',gap:5,cursor:'pointer',transition:'box-shadow .12s',boxShadow:'var(--card-sh)'}}
     onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 3px 14px rgba(0,0,0,0.10)';}}
     onMouseLeave={e=>{e.currentTarget.style.boxShadow='var(--card-sh)';}}>
@@ -474,7 +478,7 @@ const TaskCard=({card,onDragStart,onClick})=>{
 };
 
 /* ── Board ── */
-const Board=({cards,onUpdate,hideDone,hideNS})=>{
+const Board=({cards,allCards,onUpdate,hideDone,hideNS})=>{
   const[dragOver,setDO]=useState(null);
   const[modalCard,setModal]=useState(null);
   const dragId=useRef(null);
@@ -486,8 +490,8 @@ const Board=({cards,onUpdate,hideDone,hideNS})=>{
     dragId.current=null;
   },[onUpdate]);
 
-  /* Keep modal card in sync with cards array (e.g. after Firebase update) */
-  const activeCard=modalCard?cards.find(c=>c.id===modalCard.id)||null:null;
+  /* Keep modal card in sync — search allCards so filtered views still work */
+  const activeCard=modalCard?(allCards||cards).find(c=>c.id===modalCard.id)||null:null;
   const visibleStatuses=STATUSES.filter(s=>!(hideDone&&s.key==='done')&&!(hideNS&&s.key==='not-started'));
 
   return<>
@@ -644,7 +648,7 @@ const App=()=>{
     <Header ss={ss} onReset={reset} onCsv={()=>doCSV(cards)} light={light} onToggle={()=>setLight(p=>!p)}/>
     <KPIs cards={cards}/>
     <Filters f={f} set={(k,v)=>setF(p=>({...p,[k]:v}))} clear={()=>setF(EF)} cnt={cnt}/>
-    <Board cards={filtered} onUpdate={update} hideDone={f.hideDone} hideNS={f.hideNS}/>
+    <Board cards={filtered} allCards={cards} onUpdate={update} hideDone={f.hideDone} hideNS={f.hideNS}/>
   </div>;
 };
 
