@@ -474,7 +474,7 @@ const TaskCard=({card,onDragStart,onClick})=>{
 };
 
 /* ── Board ── */
-const Board=({cards,onUpdate})=>{
+const Board=({cards,onUpdate,hideDone,hideNS})=>{
   const[dragOver,setDO]=useState(null);
   const[modalCard,setModal]=useState(null);
   const dragId=useRef(null);
@@ -488,10 +488,11 @@ const Board=({cards,onUpdate})=>{
 
   /* Keep modal card in sync with cards array (e.g. after Firebase update) */
   const activeCard=modalCard?cards.find(c=>c.id===modalCard.id)||null:null;
+  const visibleStatuses=STATUSES.filter(s=>!(hideDone&&s.key==='done')&&!(hideNS&&s.key==='not-started'));
 
   return<>
     <div style={{display:'flex',gap:12,overflowX:'auto',paddingBottom:10,flex:1,minHeight:0,alignItems:'stretch'}}>
-    {STATUSES.map(status=>{
+    {visibleStatuses.map(status=>{
       const col=cards.filter(c=>c.status===status.key);
       const isO=dragOver===status.key;
       return<div key={status.key}
@@ -515,17 +516,40 @@ const Board=({cards,onUpdate})=>{
   </>;
 };
 
+/* ── Multi-select Tool Picker ── */
+const ToolPicker=({selected,onChange})=>{
+  const[open,setOpen]=useState(false);
+  const ref=useRef(null);
+  useEffect(()=>{if(!open)return;const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};document.addEventListener('mousedown',h);return()=>document.removeEventListener('mousedown',h);},[open]);
+  const toggle=id=>{const next=selected.includes(id)?selected.filter(x=>x!==id):[...selected,id];onChange(next);};
+  const label=selected.length===0?'All Tools':selected.length===1?TOOL_IX[selected[0]]?.name:selected.length+' Tools';
+  return<div ref={ref} style={{position:'relative'}}>
+    <button onClick={()=>setOpen(!open)} style={{fontSize:11,padding:'4px 8px',background:'var(--card)',border:'1px solid var(--border-s)',color:'var(--t1)',borderRadius:6,height:28,cursor:'pointer',fontWeight:selected.length?700:400,display:'flex',alignItems:'center',gap:4,fontFamily:'inherit'}}>
+      {label} <span style={{fontSize:8,color:'var(--t3)'}}>&#9660;</span>
+    </button>
+    {open&&<div style={{position:'absolute',top:32,left:0,zIndex:100,background:'var(--card)',border:'1px solid var(--border-s)',borderRadius:8,boxShadow:'0 8px 24px rgba(0,0,0,0.15)',padding:4,minWidth:180,maxHeight:260,overflowY:'auto'}}>
+      {TOOLS.map(t=>{
+        const on=selected.includes(t.id);
+        return<button key={t.id} onClick={()=>toggle(t.id)} style={{display:'flex',alignItems:'center',gap:6,width:'100%',padding:'5px 8px',background:on?'var(--accent-bg)':'transparent',border:'none',borderRadius:5,cursor:'pointer',fontSize:11,color:'var(--t1)',fontFamily:'inherit',textAlign:'left'}}>
+          <span style={{width:8,height:8,borderRadius:2,background:on?t.clr:'var(--border-s)',flexShrink:0,border:on?'none':'1px solid var(--t4)'}}/>
+          <span style={{fontWeight:on?700:400,color:on?t.clr:'var(--t1)'}}>{t.name}</span>
+        </button>;
+      })}
+      {selected.length>0&&<button onClick={()=>{onChange([]);setOpen(false);}} style={{display:'block',width:'100%',padding:'5px 8px',background:'transparent',border:'none',borderTop:'1px solid var(--border)',cursor:'pointer',fontSize:10,color:'var(--accent)',fontWeight:700,fontFamily:'inherit',textAlign:'center',marginTop:2}}>Clear selection</button>}
+    </div>}
+  </div>;
+};
+
 /* ── Filters ── */
 const Filters=({f,set,clear,cnt})=>{
   const s={fontSize:11,padding:'4px 8px',background:'var(--card)',border:'1px solid var(--border-s)',color:'var(--t1)',borderRadius:6,outline:'none',height:28};
   return<div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
-    <select value={f.tool} onChange={e=>set('tool',e.target.value)} style={{...s,fontWeight:f.tool?700:400}}>
-      <option value="">All Tools</option>{TOOLS.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
-    </select>
+    <ToolPicker selected={f.tools} onChange={v=>set('tools',v)}/>
     <select value={f.phase} onChange={e=>set('phase',e.target.value)} style={s}><option value="">All Phases</option><option value="1">Phase 1</option><option value="2">Phase 2</option><option value="3">Phase 3</option></select>
     <select value={f.assignee} onChange={e=>set('assignee',e.target.value)} style={s}><option value="">All Owners</option>{TEAM.map(m=><option key={m.name} value={m.name}>{m.name}</option>)}</select>
     <label style={{display:'flex',alignItems:'center',gap:4,fontSize:11,color:'var(--t2)',cursor:'pointer',height:28}}><input type="checkbox" checked={f.hideDone} onChange={e=>set('hideDone',e.target.checked)}/> Hide Done</label>
     <label style={{display:'flex',alignItems:'center',gap:4,fontSize:11,color:'var(--t2)',cursor:'pointer',height:28}}><input type="checkbox" checked={f.hideNS} onChange={e=>set('hideNS',e.target.checked)}/> Hide Not Started</label>
+    {f.tools.length>0&&<div style={{display:'flex',gap:3,flexWrap:'wrap'}}>{f.tools.map(id=>{const t=TOOL_IX[id];return t?<span key={id} onClick={()=>set('tools',f.tools.filter(x=>x!==id))} style={{fontSize:9,fontWeight:700,color:t.clr,background:t.clr+'15',padding:'2px 7px',borderRadius:99,cursor:'pointer',border:`1px solid ${t.clr}30`}}>{t.name} x</span>:null;})}</div>}
     {cnt>0&&<button onClick={clear} style={{fontSize:10,fontWeight:700,color:'var(--accent)',background:'var(--accent-bg)',padding:'0 10px',borderRadius:6,border:'none',cursor:'pointer',height:28}}>Clear ({cnt})</button>}
   </div>;
 };
@@ -569,7 +593,7 @@ function doCSV(cards){
 }
 
 /* ── App ── */
-const EF={tool:'',phase:'',assignee:'',hideDone:false,hideNS:false};
+const EF={tools:[],phase:'',assignee:'',hideDone:false,hideNS:false};
 const App=()=>{
   const[cards,setCards]=useState([]);
   const[loading,setLoading]=useState(true);
@@ -604,7 +628,7 @@ const App=()=>{
 
   const filtered=useMemo(()=>{
     let r=[...cards];
-    if(f.tool)     r=r.filter(c=>c.toolId===f.tool);
+    if(f.tools.length) r=r.filter(c=>f.tools.includes(c.toolId));
     if(f.phase)    r=r.filter(c=>TOOL_IX[c.toolId]?.phase===Number(f.phase));
     if(f.assignee) r=r.filter(c=>c.assignee===f.assignee);
     if(f.hideDone) r=r.filter(c=>c.status!=='done');
@@ -612,7 +636,7 @@ const App=()=>{
     return r;
   },[cards,f]);
 
-  const cnt=Object.entries(f).filter(([k,v])=>typeof v==='boolean'?v:v!=='').length;
+  const cnt=Object.entries(f).filter(([k,v])=>Array.isArray(v)?v.length>0:typeof v==='boolean'?v:v!=='').length;
 
   if(loading)return<div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'var(--bg)'}}><span style={{color:'var(--t3)',fontSize:13}}>Loading board…</span></div>;
 
@@ -620,7 +644,7 @@ const App=()=>{
     <Header ss={ss} onReset={reset} onCsv={()=>doCSV(cards)} light={light} onToggle={()=>setLight(p=>!p)}/>
     <KPIs cards={cards}/>
     <Filters f={f} set={(k,v)=>setF(p=>({...p,[k]:v}))} clear={()=>setF(EF)} cnt={cnt}/>
-    <Board cards={filtered} onUpdate={update}/>
+    <Board cards={filtered} onUpdate={update} hideDone={f.hideDone} hideNS={f.hideNS}/>
   </div>;
 };
 
