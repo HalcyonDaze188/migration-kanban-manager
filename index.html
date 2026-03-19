@@ -71,7 +71,6 @@ const STATUSES=[
   {key:'not-started', label:'Not Started', clr:'#6B7280', bg:'rgba(107,114,128,0.08)'},
   {key:'in-progress', label:'In Progress', clr:'#2563EB', bg:'rgba(37,99,235,0.08)'},
   {key:'blocked',     label:'Blocked',     clr:'#DC2626', bg:'rgba(220,38,38,0.08)'},
-  {key:'on-hold',     label:'On Hold',     clr:'#D97706', bg:'rgba(217,119,6,0.08)'},
   {key:'done',        label:'Done',        clr:'#16A34A', bg:'rgba(22,163,74,0.08)'},
 ];
 
@@ -391,10 +390,10 @@ const Board=({cards,onUpdate})=>{
         style={{flexShrink:0,flex:'1 1 0',minWidth:200,maxWidth:340,display:'flex',flexDirection:'column',background:'var(--surface)',border:`1px solid ${isO?status.clr:'var(--border)'}`,borderRadius:10,transition:'border-color .15s',boxShadow:isO?`0 0 0 2px ${status.bg}`:'var(--sh)',overflow:'hidden'}}
         onDragOver={e=>{e.preventDefault();setDO(status.key);}} onDragLeave={()=>setDO(null)} onDrop={e=>onDrop(e,status.key)}>
 
-        <div style={{padding:'8px 10px',borderBottom:'1px solid var(--border-s)',display:'flex',alignItems:'center',gap:7,background:'var(--card)',flexShrink:0}}>
+        <div style={{padding:'8px 10px',borderBottom:'1px solid rgba(255,255,255,0.1)',display:'flex',alignItems:'center',gap:7,background:'rgba(30,36,50,0.85)',backdropFilter:'blur(12px)',WebkitBackdropFilter:'blur(12px)',flexShrink:0,borderRadius:'9px 9px 0 0'}}>
           <span style={{width:7,height:7,borderRadius:'50%',background:status.clr,flexShrink:0}}/>
-          <span style={{fontSize:12,fontWeight:700,color:'var(--t1)',flex:1}}>{status.label}</span>
-          <span style={{fontSize:10,fontWeight:700,color:status.clr,background:status.bg,padding:'1px 7px',borderRadius:99,border:`1px solid ${status.clr}25`}}>{col.length}</span>
+          <span style={{fontSize:12,fontWeight:700,color:'#FFFFFF',flex:1}}>{status.label}</span>
+          <span style={{fontSize:10,fontWeight:700,color:'#FFFFFF',background:'rgba(255,255,255,0.15)',padding:'1px 7px',borderRadius:99,border:'1px solid rgba(255,255,255,0.2)'}}>{col.length}</span>
         </div>
 
         <div style={{flex:1,overflowY:'auto',padding:7,display:'flex',flexDirection:'column',gap:7}}>
