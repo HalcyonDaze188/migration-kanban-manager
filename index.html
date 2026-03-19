@@ -293,38 +293,159 @@ const KPIs=({cards})=>{
   </div>;
 };
 
-/* ── Task Card ──
-   Shows at a glance: Task name, Tool name (colour), RAG dot, End date, Assignee
-   Status changed by drag-and-drop only — no dropdown.
+/* ── Dependencies map (task → what it depends on) ── */
+const DEPS={
+  '1.2':'1.1','2.1':'1.2','2.2':'2.1','2.3':'2.2','2.4':'2.3',
+  '3.1':'2.4','3.2':'3.1','3.3':'3.2','3.4':'3.3','3.5':'3.4','3.6':'3.5','3.7':'3.6',
+};
+const STAGE_LABEL=id=>{const n=parseFloat(id);return n<2?'Stage 1: Prep & Source':n<3?'Stage 2: Test & Tune':'Stage 3: Deploy';};
+
+/* ── Shared styles ── */
+const lSt={fontSize:9,fontWeight:700,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:3};
+const iSt={width:'100%',fontSize:12,padding:'6px 8px',background:'var(--surface)',border:'1px solid var(--border-s)',color:'var(--t1)',borderRadius:6,outline:'none'};
+
+/* ── Card Modal ──
+   Full-screen centred overlay with all card fields editable.
+   Shows: Task, Tool, Phase/Stage, RAG, Assignee, Start Date, End Date, Jira, Dependencies, Notes, Last Updated.
 */
-const TaskCard=({card,onUpdate,onDragStart})=>{
-  const[ed,setEd]=useState(false);
-  const[notes,setNotes]=useState(card.notes);
-  const[assignee,setAs]=useState(card.assignee);
-  const[rag,setRag]=useState(card.rag);
+const CardModal=({card,onUpdate,onClose})=>{
+  const tool=TOOL_IX[card.toolId];
+  const task=TASK_IX[card.taskId];
+  if(!tool||!task)return null;
+
+  const[assignee,setAs]=useState(card.assignee||'');
+  const[rag,setRag]=useState(card.rag||'amber');
+  const[endDate,setEnd]=useState(card.endDate||'');
+  const[startDate,setStart]=useState(card.startDate||'');
+  const[notes,setNotes]=useState(card.notes||'');
+
+  const status=STATUSES.find(s=>s.key===card.status);
+  const overdue=isOverdue(card.endDate,card.status);
+  const dep=DEPS[card.taskId];
+  const depTask=dep?TASK_IX[dep]:null;
+
+  const save=()=>{
+    const ch={};
+    if(assignee!==card.assignee)ch.assignee=assignee;
+    if(rag!==card.rag)ch.rag=rag;
+    if(endDate!==card.endDate)ch.endDate=endDate;
+    if(startDate!==(card.startDate||''))ch.startDate=startDate;
+    if(notes!==card.notes)ch.notes=notes;
+    if(Object.keys(ch).length)onUpdate(card.id,ch);
+    onClose();
+  };
+
+  return<div onClick={onClose} style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,0.45)',backdropFilter:'blur(4px)',WebkitBackdropFilter:'blur(4px)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,width:'100%',maxWidth:520,maxHeight:'90vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.25)',display:'flex',flexDirection:'column'}}>
+
+      {/* Header bar with tool colour */}
+      <div style={{background:tool.clr,padding:'14px 20px',borderRadius:'14px 14px 0 0',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <div>
+          <div style={{fontSize:15,fontWeight:700,color:'#fff',lineHeight:1.2}}>{task.label}</div>
+          <div style={{fontSize:11,fontWeight:600,color:'rgba(255,255,255,0.8)',marginTop:3}}>{tool.name}</div>
+        </div>
+        <button onClick={onClose} style={{background:'rgba(255,255,255,0.2)',border:'none',color:'#fff',width:28,height:28,borderRadius:8,cursor:'pointer',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>x</button>
+      </div>
+
+      {/* Info chips row */}
+      <div style={{padding:'12px 20px 0',display:'flex',gap:6,flexWrap:'wrap'}}>
+        <span style={{fontSize:10,fontWeight:700,padding:'3px 10px',borderRadius:99,background:status?.bg||'var(--surface)',color:status?.clr||'var(--t2)',border:`1px solid ${status?.clr||'var(--border)'}30`}}>{status?.label||card.status}</span>
+        <span style={{fontSize:10,fontWeight:600,padding:'3px 10px',borderRadius:99,background:'var(--accent-bg)',color:'var(--accent)'}}>Phase {tool.phase}</span>
+        <span style={{fontSize:10,fontWeight:600,padding:'3px 10px',borderRadius:99,background:'var(--surface)',color:'var(--t2)',border:'1px solid var(--border)'}}>{STAGE_LABEL(card.taskId)}</span>
+        {overdue&&<span style={{fontSize:10,fontWeight:700,padding:'3px 10px',borderRadius:99,background:'#FEE2E2',color:'#DC2626'}}>Overdue</span>}
+      </div>
+
+      {/* Fields grid */}
+      <div style={{padding:'16px 20px',display:'flex',flexDirection:'column',gap:14}}>
+
+        {/* RAG */}
+        <div>
+          <div style={lSt}>RAG Status</div>
+          <div style={{display:'flex',gap:8}}>
+            {['green','amber','red'].map(r=><button key={r} onClick={()=>setRag(r)} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 12px',borderRadius:8,background:rag===r?RAG_CLR[r]+'18':'transparent',border:rag===r?`2px solid ${RAG_CLR[r]}`:'2px solid var(--border)',cursor:'pointer',transition:'all .12s'}}>
+              <span style={{width:10,height:10,borderRadius:'50%',background:RAG_CLR[r]}}/>
+              <span style={{fontSize:11,fontWeight:rag===r?700:500,color:rag===r?RAG_CLR[r]:'var(--t2)',textTransform:'capitalize'}}>{r}</span>
+            </button>)}
+          </div>
+        </div>
+
+        {/* Assignee */}
+        <div>
+          <div style={lSt}>Assignee</div>
+          <select value={assignee} onChange={e=>setAs(e.target.value)} style={iSt}>
+            <option value="">Unassigned</option>
+            {TEAM.map(m=><option key={m.name} value={m.name}>{m.name}</option>)}
+          </select>
+        </div>
+
+        {/* Dates row */}
+        <div style={{display:'flex',gap:12}}>
+          <div style={{flex:1}}>
+            <div style={lSt}>Start Date</div>
+            <input type="date" value={startDate} onChange={e=>setStart(e.target.value)} style={iSt}/>
+          </div>
+          <div style={{flex:1}}>
+            <div style={lSt}>End Date</div>
+            <input type="date" value={endDate} onChange={e=>setEnd(e.target.value)} style={{...iSt,color:overdue?'#DC2626':'var(--t1)'}}/>
+          </div>
+        </div>
+
+        {/* Jira */}
+        {tool.jira&&<div>
+          <div style={lSt}>Jira Ticket</div>
+          <a href={`${JIRA}/${tool.jira}`} target="_blank" rel="noopener noreferrer" style={{fontSize:12,color:'var(--accent)',fontWeight:600,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:4}}>
+            {tool.jira} <span style={{fontSize:10}}>&#8599;</span>
+          </a>
+        </div>}
+
+        {/* Dependencies */}
+        <div>
+          <div style={lSt}>Dependencies</div>
+          {depTask
+            ?<span style={{fontSize:12,color:'var(--t2)'}}>{depTask.label}</span>
+            :<span style={{fontSize:12,color:'var(--t4)',fontStyle:'italic'}}>None (first task)</span>
+          }
+        </div>
+
+        {/* Notes */}
+        <div>
+          <div style={lSt}>Notes</div>
+          <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={4} placeholder="Add notes..." style={{...iSt,resize:'vertical',minHeight:60}}/>
+        </div>
+
+        {/* Last updated */}
+        {card.lastUpdated&&<div style={{fontSize:10,color:'var(--t4)'}}>Last updated: {fmtRel(card.lastUpdated)}</div>}
+      </div>
+
+      {/* Footer buttons */}
+      <div style={{padding:'0 20px 16px',display:'flex',gap:8}}>
+        <button onClick={save} style={{flex:1,fontSize:12,fontWeight:700,background:'var(--accent)',color:'#fff',padding:'9px 0',borderRadius:8,border:'none',cursor:'pointer',transition:'opacity .12s'}}>Save Changes</button>
+        <button onClick={onClose} style={{flex:1,fontSize:12,fontWeight:600,background:'transparent',color:'var(--t2)',padding:'9px 0',borderRadius:8,border:'1px solid var(--border-s)',cursor:'pointer'}}>Cancel</button>
+      </div>
+    </div>
+  </div>;
+};
+
+/* ── Task Card ──
+   Shows at a glance: Task name, Tool name (colour), RAG dot, End date, Assignee.
+   Click to open full modal editor. Status changed by drag-and-drop only.
+*/
+const TaskCard=({card,onDragStart,onClick})=>{
   const tool=TOOL_IX[card.toolId];
   const task=TASK_IX[card.taskId];
   if(!tool||!task)return null;
   const overdue=isOverdue(card.endDate,card.status);
 
-  const save=()=>{
-    const ch={};
-    if(notes!==card.notes)ch.notes=notes;
-    if(assignee!==card.assignee)ch.assignee=assignee;
-    if(rag!==card.rag)ch.rag=rag;
-    if(Object.keys(ch).length)onUpdate(card.id,ch);
-    setEd(false);
-  };
-
   return<div draggable onDragStart={e=>{onDragStart(e,card.id);e.dataTransfer.effectAllowed='move';}}
-    style={{background:'var(--card)',border:'1px solid var(--border)',borderLeft:`3px solid ${tool.clr}`,borderRadius:8,padding:'8px 10px',display:'flex',flexDirection:'column',gap:5,cursor:'grab',transition:'box-shadow .12s',boxShadow:'var(--card-sh)'}}
+    onClick={()=>onClick(card)}
+    style={{background:'var(--card)',border:'1px solid var(--border)',borderLeft:`3px solid ${tool.clr}`,borderRadius:8,padding:'8px 10px',display:'flex',flexDirection:'column',gap:5,cursor:'pointer',transition:'box-shadow .12s',boxShadow:'var(--card-sh)'}}
     onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 3px 14px rgba(0,0,0,0.10)';}}
     onMouseLeave={e=>{e.currentTarget.style.boxShadow='var(--card-sh)';}}>
 
     {/* Row 1: Task name + RAG dot */}
     <div style={{display:'flex',alignItems:'flex-start',gap:6}}>
       <span style={{width:7,height:7,borderRadius:'50%',background:RAG_CLR[card.rag],flexShrink:0,marginTop:4}}/>
-      <span onClick={()=>setEd(!ed)} style={{fontSize:12,fontWeight:700,color:'var(--t1)',lineHeight:'16px',cursor:'pointer',flex:1,letterSpacing:'-.01em'}}>
+      <span style={{fontSize:12,fontWeight:700,color:'var(--t1)',lineHeight:'16px',flex:1,letterSpacing:'-.01em'}}>
         {task.label}
       </span>
     </div>
@@ -348,32 +469,14 @@ const TaskCard=({card,onUpdate,onDragStart})=>{
     </div>
 
     {/* Notes preview */}
-    {!ed&&card.notes&&<div style={{paddingLeft:13}}><span style={{fontSize:10,color:'var(--t3)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{card.notes}</span></div>}
-
-    {/* Edit form (inline, toggled by clicking task name) */}
-    {ed&&<div style={{display:'flex',flexDirection:'column',gap:6,borderTop:'1px solid var(--border-s)',paddingTop:6,marginTop:2}} onClick={e=>e.stopPropagation()}>
-      <div><div style={lSt}>RAG</div>
-        <div style={{display:'flex',gap:6}}>
-          {['green','amber','red'].map(r=><button key={r} onClick={()=>setRag(r)} style={{width:20,height:20,borderRadius:'50%',background:RAG_CLR[r],border:rag===r?'2px solid var(--t1)':'2px solid transparent',cursor:'pointer',transition:'border .1s'}}/>)}
-        </div>
-      </div>
-      <div><div style={lSt}>Assignee</div>
-        <select value={assignee} onChange={e=>setAs(e.target.value)} style={iSt}><option value="">Unassigned</option>{TEAM.map(m=><option key={m.name} value={m.name}>{m.name}</option>)}</select></div>
-      <div><div style={lSt}>Notes</div>
-        <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={2} style={{...iSt,resize:'none'}}/></div>
-      <div style={{display:'flex',gap:6}}>
-        <button onClick={save} style={{flex:1,fontSize:10,fontWeight:700,background:'var(--accent)',color:'#fff',padding:'5px 0',borderRadius:5,border:'none',cursor:'pointer'}}>Save</button>
-        <button onClick={()=>setEd(false)} style={{flex:1,fontSize:10,fontWeight:600,background:'transparent',color:'var(--t2)',padding:'5px 0',borderRadius:5,border:'1px solid var(--border-s)',cursor:'pointer'}}>Cancel</button>
-      </div>
-    </div>}
+    {card.notes&&<div style={{paddingLeft:13}}><span style={{fontSize:10,color:'var(--t3)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block'}}>{card.notes}</span></div>}
   </div>;
 };
-const lSt={fontSize:9,fontWeight:700,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:3};
-const iSt={width:'100%',fontSize:11,padding:'4px 6px',background:'var(--surface)',border:'1px solid var(--border-s)',color:'var(--t1)',borderRadius:5,outline:'none'};
 
 /* ── Board ── */
 const Board=({cards,onUpdate})=>{
   const[dragOver,setDO]=useState(null);
+  const[modalCard,setModal]=useState(null);
   const dragId=useRef(null);
   const onDS=useCallback((e,id)=>{dragId.current=id;e.dataTransfer.setData('text/plain',id);},[]);
   const onDrop=useCallback((e,key)=>{
@@ -383,7 +486,11 @@ const Board=({cards,onUpdate})=>{
     dragId.current=null;
   },[onUpdate]);
 
-  return<div style={{display:'flex',gap:12,overflowX:'auto',paddingBottom:10,flex:1,minHeight:0,alignItems:'stretch'}}>
+  /* Keep modal card in sync with cards array (e.g. after Firebase update) */
+  const activeCard=modalCard?cards.find(c=>c.id===modalCard.id)||null:null;
+
+  return<>
+    <div style={{display:'flex',gap:12,overflowX:'auto',paddingBottom:10,flex:1,minHeight:0,alignItems:'stretch'}}>
     {STATUSES.map(status=>{
       const col=cards.filter(c=>c.status===status.key);
       const isO=dragOver===status.key;
@@ -398,12 +505,14 @@ const Board=({cards,onUpdate})=>{
         </div>
 
         <div style={{flex:1,overflowY:'auto',padding:7,display:'flex',flexDirection:'column',gap:7}}>
-          {col.map(c=><TaskCard key={c.id} card={c} onUpdate={onUpdate} onDragStart={onDS}/>)}
+          {col.map(c=><TaskCard key={c.id} card={c} onDragStart={onDS} onClick={setModal}/>)}
           {col.length===0&&<div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:56,fontSize:11,color:'var(--t4)',border:'1px dashed var(--border-s)',borderRadius:6}}>Drop here</div>}
         </div>
       </div>;
     })}
-  </div>;
+    </div>
+    {activeCard&&<CardModal card={activeCard} onUpdate={onUpdate} onClose={()=>setModal(null)}/>}
+  </>;
 };
 
 /* ── Filters ── */
